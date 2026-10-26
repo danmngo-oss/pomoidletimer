@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en" data-theme="midnight">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Focus Idle</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">Focus&nbsp;Idle</h1>
+    <div class="hud" id="hud"></div>
+    <div class="menu">
+      <button id="export-btn" class="ghost" type="button">Export</button>
+      <button id="import-btn" class="ghost" type="button">Import</button>
+      <button id="reset-btn" class="ghost danger" type="button">Reset</button>
+      <input id="import-file" type="file" accept="application/json" hidden>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- World clock -->
+    <section class="panel" id="clock-panel" aria-labelledby="clock-title">
+      <div class="panel-head">
+        <h2 id="clock-title">World Clock</h2>
+        <button id="clock-format" class="chip" type="button" title="Toggle 12/24 hour">12h</button>
+      </div>
+      <div class="clock-main">
+        <div id="clock-time" class="clock-time">--:--:--</div>
+        <div id="clock-date" class="muted"></div>
+      </div>
+      <label class="field">Time zone
+        <select id="clock-zone"></select>
+      </label>
+      <div class="clock-extra">
+        <div class="row">
+          <select id="clock-add-zone" aria-label="Add another time zone"></select>
+          <button id="clock-add" type="button">Add</button>
+        </div>
+        <ul id="clock-list" class="clock-list"></ul>
+      </div>
+    </section>
+
+    <!-- Focus timer / stopwatch -->
+    <section class="panel" id="timer-panel" aria-labelledby="timer-title">
+      <div class="panel-head">
+        <h2 id="timer-title">Focus Session</h2>
+        <div class="segmented" id="timer-mode">
+          <button type="button" data-mode="countdown">Timer</button>
+          <button type="button" data-mode="stopwatch">Stopwatch</button>
+        </div>
+      </div>
+      <label class="field">Working on
+        <select id="timer-skill"></select>
+      </label>
+      <div id="timer-display" class="timer-display">25:00</div>
+      <div class="progress" aria-hidden="true"><div id="timer-progress"></div></div>
+      <div id="timer-duration" class="row duration">
+        <input id="timer-minutes" type="number" min="1" max="600" value="25" aria-label="Minutes">
+        <span class="muted">min</span>
+        <button class="chip" type="button" data-preset="15">15</button>
+        <button class="chip" type="button" data-preset="25">25</button>
+        <button class="chip" type="button" data-preset="50">50</button>
+        <button class="chip" type="button" data-preset="90">90</button>
+      </div>
+      <div class="row controls">
+        <button id="timer-start" class="primary" type="button">Start</button>
+        <button id="timer-finish" type="button">Finish &amp; log</button>
+        <button id="timer-reset" class="ghost" type="button">Reset</button>
+      </div>
+    </section>
+
+    <!-- Skill map -->
+    <section class="panel map-panel" id="map-panel" aria-labelledby="map-title">
+      <div class="panel-head">
+        <h2 id="map-title">Skill Map</h2>
+        <div class="row">
+          <button id="map-edit" class="ghost" type="button">Edit selected</button>
+          <button id="map-add" class="primary" type="button">+ Add skill</button>
+        </div>
+      </div>
+      <svg id="skill-map" class="skill-map" role="group" aria-label="Skill map"></svg>
+      <p class="muted hint">Click a skill to focus on it · drag to rearrange · double-click to edit</p>
+    </section>
+
+    <!-- Session history -->
+    <section class="panel history-panel" id="history-panel" aria-labelledby="history-title">
+      <div class="panel-head">
+        <h2 id="history-title">Session Log</h2>
+        <div id="history-summary" class="muted"></div>
+      </div>
+      <div class="table-wrap">
+        <table class="history">
+          <thead>
+            <tr><th>When</th><th>Skill</th><th>Focus</th><th>Output</th><th>Productivity</th><th>Rewards</th></tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="session-dialog" class="dialog"></dialog>
+  <dialog id="skill-dialog" class="dialog"></dialog>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
