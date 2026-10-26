@@ -324,6 +324,86 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .preset-icon { font-size: 1.8rem; line-height: 1.2; }
 .preset-name { font-weight: 600; }
 .preset-rows { display: flex; flex-direction: column; gap: 6px; }
-.preset-row { display: grid; grid-template-columns: 56px 1fr 90px auto; gap: 6px; align-items: center; }
+.preset-row { display: grid; grid-template-columns: 56px 1fr 120px auto; gap: 6px; align-items: center; }
 .preset-row input:first-child { text-align: center; }
 .preset-head { font-size: .8rem; }
+
+/* ---- Categories & break bonuses ---- */
+.cat-badge circle { fill: var(--panel); stroke: var(--node-color); stroke-width: 2; }
+.cat-badge text { font-size: 13px; pointer-events: none; }
+.node.buffed .node-body { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--success) 80%, transparent)); }
+.node.buffed .node-stats { fill: var(--success); font-weight: 600; }
+
+.hud-buffs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.buff-chip {
+  font-size: .85rem;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+}
+
+.category-picker { width: 100%; }
+.category-picker label { flex: 1; }
+.category-picker input { position: absolute; opacity: 0; pointer-events: none; }
+.category-picker span { display: block; text-align: center; padding: 7px 6px; cursor: pointer; color: var(--text); font-size: .9rem; }
+.category-picker input:checked + span { background: var(--accent); color: var(--accent-text); }
+.category-picker input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.preset-cats { font-size: .95rem; letter-spacing: 2px; }
+.preset-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; }
+.preset-extra { gap: 6px; }
+.cat-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.cat-toggle span {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: .8rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+.cat-toggle input:checked + span { color: var(--text); border-color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
+.cat-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.preset-measure { flex-wrap: nowrap; }
+.metric-unit { flex: 1; }
+.metric-target { width: 90px; }
+.preset-row .input-unit input { width: 100%; }
+
+.break-bonus { margin-top: 2px; }
+.quality .progress > div { height: 100%; background: var(--success); }
+.quality .row { gap: 8px; margin-bottom: 6px; }
+.bonus-list { display: flex; flex-direction: column; gap: 6px; }
+.bonus-list p { margin: 0; }
+.bonus-chip {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success) 12%, var(--panel-2));
+}
+.bonus-chip strong { color: var(--success); }
+
+/* ---- Goals / pace card ---- */
+.goal-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.goal-fields input { width: 100%; }
+.goal-fields .input-unit input { flex: 1; min-width: 0; }
+.goal-fields[hidden] { display: none; }
+@media (max-width: 520px) { .goal-fields { grid-template-columns: 1fr 1fr; } }
+
+.pace-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); }
+.pace-card[hidden], .pace-goal[hidden], .pace-card button[hidden] { display: none; }
+.pace-card > button { align-self: flex-start; }
+.pace-last { gap: 8px; }
+.pace-goal { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+.pace-main { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.pace-status { font-weight: 600; font-size: .9rem; }
+.pace-status.ahead { color: var(--success); }
+.pace-status.behind { color: #f7b955; }
+.pace-bar { position: relative; height: 8px; border-radius: 999px; background: var(--bg); }
+.pace-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s; }
+.pace-marker { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--text); transform: translateX(-1px); }
+.pace-marker[hidden] { display: none; }

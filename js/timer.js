@@ -107,7 +107,7 @@ export function initTimer() {
   function renderSkills() {
     const { skills, selectedSkillId } = store.state;
     skillSelect.replaceChildren(
-      ...(skills.length ? [] : [el('option', { value: '' }, '— add a skill first —')]),
+      ...(skills.length ? [] : [el('option', { value: '' }, '— add a focus first —')]),
       ...skills.map((s) => el('option', { value: s.id }, `${s.icon} ${s.name}`)),
     );
     skillSelect.value = selectedSkillId ?? '';

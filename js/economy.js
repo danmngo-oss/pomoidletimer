@@ -6,6 +6,14 @@ export const XP_PER_POINT = 10;
 export const TIME_ONLY_POINTS_PER_MIN = 0.1;     // credit for a session logged without metrics
 export const MAX_HISTORY = 200;
 
+// Break bonuses: a finished break multiplies idle output for foci in its
+// categories until the bonus timer runs out.
+export const BREAK_BUFF_MULT = 2;
+export const BREAK_SWEET_SPOT_MIN = [5, 10];       // ideal break length, minutes
+export const BREAK_BUFF_MAX_MS = 30 * 60_000;     // bonus length for an ideal break
+export const BUFF_CAP_MS = 60 * 60_000;           // stacked bonuses can't exceed this
+const MIN_BONUS_MS = 30_000;
+
 export function xpToNext(level) {
   return Math.round(100 * 1.4 ** (level - 1));
 }
@@ -35,7 +43,7 @@ export function scoreSession({ skill, values, focusMs, rating }) {
     // Productivity = output points per focused hour; the core metric of the game.
     productivity: timeOnly || minutes === 0 ? 0 : output / (minutes / 60),
     xp: Math.max(1, Math.round(points * XP_PER_POINT * mult)),
-    focus: Math.max(1, Math.round(minutes * mult)),
+    momentum: Math.max(1, Math.round(minutes * mult)),
   };
 }
 
@@ -57,7 +65,35 @@ export function idleRate(skill) {
   return BASE_IDLE_RATE * skill.level * productivityBoost;
 }
 
+export const isBuffed = (buffs, category, now = Date.now()) => (buffs?.[category] ?? 0) > now;
+
+// Idle rate including any active break bonus for the skill's category.
+export function effectiveRate(skill, buffs, now = Date.now()) {
+  return idleRate(skill) * (isBuffed(buffs, skill.category, now) ? BREAK_BUFF_MULT : 1);
+}
+
 // Exponential moving average so recent sessions matter most.
 export function nextAvgProductivity(skill, productivity) {
   return skill.sessionCount <= 1 ? productivity : skill.avgProductivity * 0.7 + productivity * 0.3;
+}
+
+// 0..1 score for break length. Short breaks ramp up quadratically (1 min = 4%,
+// 2.5 min = 25%), the sweet spot scores 100%, and long breaks fall off
+// (15 min = 78%, 20 min = 37%, 30 min = ~2%).
+export function breakLengthQuality(durationMs) {
+  const [lo, hi] = BREAK_SWEET_SPOT_MIN;
+  const m = durationMs / 60_000;
+  if (m < lo) return (m / lo) ** 2;
+  if (m <= hi) return 1;
+  return Math.exp(-(((m - hi) / hi) ** 2));
+}
+
+// Length of the bonus a break earns. The optional preset metric (e.g. steps)
+// adds up to +25% for hitting its target, and the 1-5 "how refreshed" rating
+// nudges it +-20%. Skipping either never reduces the bonus.
+export function breakBonus({ durationMs, metricValue, metricTarget, rating }) {
+  const quality = breakLengthQuality(durationMs);
+  const metric = metricTarget > 0 && metricValue > 0 ? 1 + 0.25 * Math.min(1, metricValue / metricTarget) : 1;
+  const ms = BREAK_BUFF_MAX_MS * quality * metric * ratingMultiplier(rating);
+  return { quality, ms: ms < MIN_BONUS_MS ? 0 : Math.round(ms) };
 }

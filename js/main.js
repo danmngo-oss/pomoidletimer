@@ -8,6 +8,7 @@ import { initHistory } from './history.js';
 import { initHud } from './hud.js';
 import { initIdle } from './idle.js';
 import { initBreaks } from './breaks.js';
+import { initGoalCard } from './goals.js';
 
 function initSaveMenu() {
   $('export-btn').addEventListener('click', () => {
@@ -36,7 +37,7 @@ function initSaveMenu() {
   });
 
   $('reset-btn').addEventListener('click', () => {
-    if (confirm('Erase all progress, skills and history?')) store.reset();
+    if (confirm('Erase all progress, foci and history?')) store.reset();
   });
 }
 
@@ -46,6 +47,7 @@ initClock();
 initSkillMap();
 initTimer();
 initBreaks();
+initGoalCard();
 initHistory();
 initHud();
 initSaveMenu();

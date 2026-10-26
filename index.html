@@ -55,6 +55,7 @@
       <label class="field">Working on
         <select id="timer-skill"></select>
       </label>
+      <div id="pace-card" class="pace-card"></div>
       <div id="timer-display" class="timer-display">25:00</div>
       <div class="progress" aria-hidden="true"><div id="timer-progress"></div></div>
       <div id="timer-duration" class="row duration">
@@ -75,14 +76,14 @@
     <!-- Skill map -->
     <section class="panel map-panel" id="map-panel" aria-labelledby="map-title">
       <div class="panel-head">
-        <h2 id="map-title">Skill Map</h2>
+        <h2 id="map-title">Focus Map</h2>
         <div class="row">
           <button id="map-edit" class="ghost" type="button">Edit selected</button>
-          <button id="map-add" class="primary" type="button">+ Add skill</button>
+          <button id="map-add" class="primary" type="button">+ Add a Focus</button>
         </div>
       </div>
-      <svg id="skill-map" class="skill-map" role="group" aria-label="Skill map"></svg>
-      <p class="muted hint">Click a skill to focus on it · drag to rearrange · double-click to edit · click <strong>You</strong> to take a break</p>
+      <svg id="skill-map" class="skill-map" role="group" aria-label="Focus map"></svg>
+      <p class="muted hint">Click a focus to work on it · drag to rearrange · double-click to edit · click <strong>You</strong> to take a break</p>
     </section>
 
     <!-- Session history -->
@@ -94,7 +95,7 @@
       <div class="table-wrap">
         <table class="history">
           <thead>
-            <tr><th>When</th><th>Skill</th><th>Focus</th><th>Output</th><th>Productivity</th><th>Rewards</th></tr>
+            <tr><th>When</th><th>Focus</th><th>Time</th><th>Output</th><th>Productivity</th><th>Rewards</th></tr>
           </thead>
           <tbody id="history-body"></tbody>
         </table>

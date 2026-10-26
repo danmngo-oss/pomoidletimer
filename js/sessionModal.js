@@ -14,7 +14,7 @@ export function logSession({ skill, values, focusMs, rating, note }) {
     sk.totalFocusMs += focusMs;
     sk.sessionCount += 1;
     if (!result.timeOnly) sk.avgProductivity = nextAvgProductivity(sk, result.productivity);
-    s.focus += result.focus;
+    s.momentum += result.momentum;
     s.sessions.unshift({
       id: uid(),
       at: Date.now(),
@@ -26,7 +26,7 @@ export function logSession({ skill, values, focusMs, rating, note }) {
       rating,
       note,
       metrics: sk.metrics
-        .map((m) => ({ label: m.label, unit: m.unit, value: Number(values[m.id]) || 0 }))
+        .map((m) => ({ metricId: m.id, label: m.label, unit: m.unit, value: Number(values[m.id]) || 0 }))
         .filter((m) => m.value > 0),
       ...result,
     });
@@ -56,11 +56,11 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
     submitBtn.disabled = !skill;
     if (!skill) {
       fields.replaceChildren(
-        el('p', { class: 'muted' }, 'You need a skill to log this session to.'),
+        el('p', { class: 'muted' }, 'You need a focus to log this session to.'),
         el('button', {
           type: 'button',
           onclick: () => openSkillEditor(null, (id) => { skill = getSkill(id); renderSkillOptions(); renderFields(); }),
-        }, '+ Create a skill'));
+        }, '+ Add a Focus'));
       preview.replaceChildren();
       return;
     }
@@ -75,7 +75,7 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
           el('span', { class: 'unit' }, m.unit)),
         el('small', { class: 'muted' }, `${m.perPoint} ${m.unit} = 1 point`))),
       ...(skill.metrics.length ? [] : [el('p', { class: 'muted' },
-        'This skill has no metrics yet, so you\'ll get time-based credit. Edit the skill on the map to add some.')]),
+        'This focus has no metrics yet, so you\'ll get time-based credit. Edit it on the Focus Map to add some.')]),
     );
     updatePreview();
   }
@@ -85,7 +85,7 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
     preview.replaceChildren(
       el('div', {}, el('strong', {}, r.timeOnly ? '—' : `${fmtNum(r.productivity)} pts/hr`), el('span', { class: 'muted' }, 'productivity')),
       el('div', {}, el('strong', {}, `+${fmtNum(r.xp)}`), el('span', { class: 'muted' }, 'XP')),
-      el('div', {}, el('strong', {}, `+${fmtNum(r.focus)} ◆`), el('span', { class: 'muted' }, 'Focus')),
+      el('div', {}, el('strong', {}, `+${fmtNum(r.momentum)} ◆`), el('span', { class: 'muted' }, 'Momentum')),
     );
   }
 
@@ -101,14 +101,14 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
       if (!skill) return;
       const { result, levelsGained } = logSession({ skill, values, focusMs, rating, note: note.trim() });
       dlg.close();
-      toast(`${skill.icon} ${skill.name}: +${fmtNum(result.xp)} XP, +${fmtNum(result.focus)} ◆`, { kind: 'success' });
+      toast(`${skill.icon} ${skill.name}: +${fmtNum(result.xp)} XP, +${fmtNum(result.momentum)} ◆`, { kind: 'success' });
       if (levelsGained) toast(`${skill.name} reached level ${getSkill(skill.id).level}! Idle output increased.`, { kind: 'level' });
       onLogged?.();
     },
   },
     el('h3', {}, 'Session complete'),
     el('p', { class: 'muted' }, `You focused for ${fmtDuration(focusMs)}. What did you get done?`),
-    el('label', { class: 'field' }, 'Skill', skillSelect),
+    el('label', { class: 'field' }, 'Focus', skillSelect),
     fields,
     el('div', { class: 'field' }, 'How focused were you? (1–5)', ratingGroup),
     el('label', { class: 'field' }, 'Notes (optional)',

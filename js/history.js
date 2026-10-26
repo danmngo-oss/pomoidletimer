@@ -41,7 +41,7 @@ export function initHistory() {
       el('td', { title: s.note || '' },
         s.metrics.length ? s.metrics.map((m) => `${fmtNum(m.value)} ${m.unit}`).join(', ') : el('span', { class: 'muted' }, 'time only')),
       el('td', {}, s.timeOnly ? '—' : `${fmtNum(s.productivity)} pts/hr`),
-      el('td', {}, `+${fmtNum(s.xp)} XP · +${fmtNum(s.focus)} ◆`))));
+      el('td', {}, `+${fmtNum(s.xp)} XP · +${fmtNum(s.momentum)} ◆`))));
   }
 
   store.subscribe(['sessions', 'break'], render);

@@ -26,7 +26,8 @@ export function fmtDuration(ms) {
   if (totalMin < 1) return `${Math.max(0, Math.round(ms / 1000))}s`;
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  return h ? `${h}h ${m}m` : `${m}m`;
+  if (!h) return `${m}m`;
+  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 export const uid = () =>

@@ -1,7 +1,8 @@
-// Skill data model, CRUD, and the add/edit dialog.
+// Focus ("skill" in code) data model, CRUD, and the add/edit dialog.
 import { store } from './state.js';
 import { $, el, toast } from './ui.js';
 import { uid } from './format.js';
+import { CATEGORIES, CATEGORY_IDS } from './categories.js';
 
 export const METRIC_PRESETS = [
   { label: 'Characters typed', unit: 'chars', perPoint: 100 },
@@ -10,6 +11,8 @@ export const METRIC_PRESETS = [
   { label: 'Problems solved', unit: 'problems', perPoint: 0.5 },
   { label: 'Flashcards reviewed', unit: 'cards', perPoint: 10 },
   { label: 'Lines of code', unit: 'lines', perPoint: 20 },
+  { label: 'Workout time', unit: 'min', perPoint: 1 },
+  { label: 'Chores done', unit: 'tasks', perPoint: 1 },
 ];
 
 const PALETTE = ['#7c9cff', '#5fd3a4', '#ffb86b', '#ff7aa8', '#c792ea', '#62d6e8', '#f7d154'];
@@ -17,19 +20,21 @@ const PALETTE = ['#7c9cff', '#5fd3a4', '#ffb86b', '#ff7aa8', '#c792ea', '#62d6e8
 // Map layout space (matches the SVG viewBox in skillMap.js).
 export const MAP = { w: 1000, h: 600, hub: { x: 500, y: 300 } };
 
-export function makeSkill({ name, icon = '✦', color, metrics = [] }) {
+export function makeSkill({ name, icon = '✦', color, category = 'mental', metrics = [], goal = null }) {
   return {
     id: uid(),
     name,
     icon,
     color: color ?? PALETTE[store.state.skills.length % PALETTE.length],
+    category,             // key of CATEGORIES
     level: 1,
     xp: 0,
-    currency: 0,          // this skill's own idle currency
+    currency: 0,          // this focus's own idle currency
     totalFocusMs: 0,
     sessionCount: 0,
     avgProductivity: 0,   // output points per focused hour (EMA)
-    metrics: metrics.map((m) => ({ id: uid(), label: m.label, unit: m.unit, perPoint: m.perPoint })),
+    metrics: metrics.map((m) => ({ id: m.id ?? uid(), label: m.label, unit: m.unit, perPoint: m.perPoint })),
+    goal,                 // { measure: 'time' | metricId, target, start: 'HH:MM', end: 'HH:MM' } or null
     pos: null,
     theme: null,          // reserved for future customization/themes
     createdAt: Date.now(),
@@ -81,8 +86,10 @@ export function selectSkill(id) {
 }
 
 export function seedStarterSkills() {
-  addSkill({ name: 'Note-taking', icon: '✎', metrics: [METRIC_PRESETS[0]] });
-  addSkill({ name: 'Lectures', icon: '🎓', metrics: [METRIC_PRESETS[1]] });
+  addSkill({ name: 'Note-taking', icon: '✎', category: 'mental', metrics: [METRIC_PRESETS[0]] });
+  addSkill({ name: 'Lectures', icon: '🎓', category: 'mental', metrics: [METRIC_PRESETS[1]] });
+  addSkill({ name: 'Exercise', icon: '🏃', category: 'physical', metrics: [METRIC_PRESETS[6]] });
+  addSkill({ name: 'Chores', icon: '🧺', category: 'life', metrics: [METRIC_PRESETS[7]] });
 }
 
 // ---- Add / edit dialog ----------------------------------------------------
@@ -91,11 +98,40 @@ export function openSkillEditor(skillId = null, onSaved) {
   const dlg = $('skill-dialog');
   const existing = skillId ? getSkill(skillId) : null;
   const draft = existing
-    ? structuredClone({ name: existing.name, icon: existing.icon, color: existing.color, metrics: existing.metrics })
-    : { name: '', icon: '✦', color: PALETTE[store.state.skills.length % PALETTE.length], metrics: [] };
+    ? structuredClone({
+      name: existing.name, icon: existing.icon, color: existing.color,
+      category: existing.category ?? 'mental', metrics: existing.metrics, goal: existing.goal,
+    })
+    : { name: '', icon: '✦', color: PALETTE[store.state.skills.length % PALETTE.length], category: 'mental', metrics: [], goal: null };
+  const goal = draft.goal ?? { measure: '', target: 3, start: '09:00', end: '17:00' };
+
+  const goalMeasure = el('select', { 'aria-label': 'Goal measure', onchange: (e) => { goal.measure = e.target.value; renderGoal(); } });
+  const goalFields = el('div', { class: 'goal-fields' });
+  function renderGoal() {
+    const named = draft.metrics.filter((m) => m.label.trim());
+    goalMeasure.replaceChildren(
+      el('option', { value: '' }, 'No daily goal'),
+      el('option', { value: 'time' }, 'Focus time'),
+      ...named.map((m) => el('option', { value: m.id }, `${m.label} (${m.unit || 'units'})`)),
+    );
+    if (goal.measure && goal.measure !== 'time' && !named.some((m) => m.id === goal.measure)) goal.measure = '';
+    goalMeasure.value = goal.measure;
+    goalFields.hidden = !goal.measure;
+    if (!goal.measure) return goalFields.replaceChildren();
+    const unit = goal.measure === 'time' ? 'hours' : named.find((m) => m.id === goal.measure).unit || 'units';
+    goalFields.replaceChildren(
+      el('label', { class: 'field' }, 'Target',
+        el('div', { class: 'input-unit' },
+          el('input', { type: 'number', min: '0.01', step: 'any', required: true, value: goal.target, oninput: (e) => { goal.target = parseFloat(e.target.value); } }),
+          el('span', { class: 'unit' }, unit))),
+      el('label', { class: 'field' }, 'From', el('input', { type: 'time', required: true, value: goal.start, oninput: (e) => { goal.start = e.target.value; } })),
+      el('label', { class: 'field' }, 'Until', el('input', { type: 'time', required: true, value: goal.end, oninput: (e) => { goal.end = e.target.value; } })),
+    );
+  }
 
   const metricRows = el('div', { class: 'metric-rows' });
   function renderMetrics() {
+    renderGoal();
     if (!draft.metrics.length) {
       metricRows.replaceChildren(el('p', { class: 'muted' }, 'No metrics yet. Sessions will earn time-based credit only.'));
       return;
@@ -103,8 +139,8 @@ export function openSkillEditor(skillId = null, onSaved) {
     metricRows.replaceChildren(
       el('div', { class: 'metric-row metric-head muted' }, el('span', {}, 'Metric'), el('span', {}, 'Unit'), el('span', {}, 'Amount = 1 pt'), el('span')),
       ...draft.metrics.map((m, i) => el('div', { class: 'metric-row' },
-        el('input', { value: m.label, placeholder: 'e.g. Characters typed', required: true, 'aria-label': 'Metric name', oninput: (e) => { m.label = e.target.value; } }),
-        el('input', { value: m.unit, placeholder: 'chars', 'aria-label': 'Unit', oninput: (e) => { m.unit = e.target.value; } }),
+        el('input', { value: m.label, placeholder: 'e.g. Characters typed', required: true, 'aria-label': 'Metric name', oninput: (e) => { m.label = e.target.value; renderGoal(); } }),
+        el('input', { value: m.unit, placeholder: 'chars', 'aria-label': 'Unit', oninput: (e) => { m.unit = e.target.value; renderGoal(); } }),
         el('input', { type: 'number', min: '0.01', step: 'any', value: m.perPoint, required: true, 'aria-label': 'Amount per point', oninput: (e) => { m.perPoint = parseFloat(e.target.value) || 1; } }),
         el('button', { type: 'button', class: 'ghost icon', title: 'Remove metric', onclick: () => { draft.metrics.splice(i, 1); renderMetrics(); } }, '✕'))),
     );
@@ -120,22 +156,36 @@ export function openSkillEditor(skillId = null, onSaved) {
     renderMetrics();
   });
 
+  const categoryPicker = el('div', { class: 'segmented category-picker', role: 'radiogroup', 'aria-label': 'Category' },
+    ...CATEGORY_IDS.map((c) => el('label', { title: CATEGORIES[c].hint },
+      el('input', { type: 'radio', name: 'focus-category', value: c, checked: draft.category === c, onchange: () => { draft.category = c; } }),
+      el('span', {}, `${CATEGORIES[c].icon} ${CATEGORIES[c].label}`))));
+
   const form = el('form', {
     class: 'dialog-body',
     onsubmit: (e) => {
       e.preventDefault();
       const name = draft.name.trim();
       if (!name) return;
-      const data = { ...draft, name, icon: draft.icon.trim() || '✦' };
+      if (goal.measure && goal.end <= goal.start) {
+        toast('The goal\'s "Until" time must be after its "From" time.', { kind: 'error' });
+        return;
+      }
+      const data = {
+        ...draft,
+        name,
+        icon: draft.icon.trim() || '✦',
+        goal: goal.measure ? { measure: goal.measure, target: goal.target, start: goal.start, end: goal.end } : null,
+      };
       let id = skillId;
       if (existing) updateSkill(skillId, data);
       else id = addSkill(data).id;
       dlg.close();
-      toast(existing ? `Updated ${name}` : `Added ${name} to your map`);
+      toast(existing ? `Updated ${name}` : `Added ${name} to your Focus Map`);
       onSaved?.(id);
     },
   },
-    el('h3', {}, existing ? 'Edit skill' : 'New skill'),
+    el('h3', {}, existing ? 'Edit focus' : 'New focus'),
     el('div', { class: 'row' },
       el('label', { class: 'field grow' }, 'Name',
         el('input', { value: draft.name, required: true, maxLength: 40, placeholder: 'e.g. Spanish', autofocus: true, oninput: (e) => { draft.name = e.target.value; } })),
@@ -143,12 +193,17 @@ export function openSkillEditor(skillId = null, onSaved) {
         el('input', { value: draft.icon, maxLength: 4, oninput: (e) => { draft.icon = e.target.value; } })),
       el('label', { class: 'field color-field' }, 'Color',
         el('input', { type: 'color', value: draft.color, oninput: (e) => { draft.color = e.target.value; } }))),
+    el('div', { class: 'field' }, 'Category', categoryPicker),
     el('h4', {}, 'Productivity metrics'),
     el('p', { class: 'muted small' }, 'What will you report after each session? Each metric converts into points.'),
     metricRows,
     el('div', { class: 'row' },
       presetSelect,
       el('button', { type: 'button', class: 'ghost', onclick: () => { draft.metrics.push({ id: uid(), label: '', unit: '', perPoint: 1 }); renderMetrics(); } }, '+ Custom metric')),
+    el('h4', {}, 'Daily goal'),
+    el('p', { class: 'muted small' }, 'e.g. 3 hours of focus time between 6:00 and 14:05. The Focus Session panel then shows whether you\'re ahead of or behind that pace.'),
+    goalMeasure,
+    goalFields,
     el('div', { class: 'row dialog-actions' },
       existing && el('button', {
         type: 'button', class: 'ghost danger',
@@ -160,7 +215,7 @@ export function openSkillEditor(skillId = null, onSaved) {
       }, 'Delete'),
       el('span', { class: 'grow' }),
       el('button', { type: 'button', class: 'ghost', onclick: () => dlg.close() }, 'Cancel'),
-      el('button', { type: 'submit', class: 'primary' }, existing ? 'Save' : 'Add skill')),
+      el('button', { type: 'submit', class: 'primary' }, existing ? 'Save' : 'Add focus')),
   );
 
   renderMetrics();

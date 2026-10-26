@@ -1,6 +1,6 @@
 # Focus Idle
 
-An idle game for the browser that turns real focus sessions into game progress. You run a timer, report what you got done (characters typed, lecture minutes understood, pages read…), and your **skills** level up and keep earning currency while you're away.
+An idle game for the browser that turns real focus sessions into game progress. You run a timer, report what you got done (characters typed, lecture minutes understood, pages read…), and your **foci** level up and keep earning currency while you're away.
 
 No build step and no dependencies: plain HTML, CSS and ES modules.
 
@@ -18,21 +18,39 @@ python3 -m http.server 8000      # or: npx serve
 
 ## How it plays
 
-1. **Pick a skill** on the Skill Map, or in the "Working on" dropdown.
+1. **Pick a focus** on the Focus Map, or in the "Working on" dropdown. Each focus has a category: 🧠 **Mental** (mind), 💪 **Physical** (body) or 🏠 **Life balance** (chores).
 2. **Start a focus session**, either as a countdown **Timer** or an open-ended **Stopwatch**.
-3. When the timer runs out (or you press *Finish & log*), a dialog asks for the skill's **metrics**, a 1–5 focus rating and an optional note.
-4. Metrics turn into **points**. Points earn **XP** for the skill, and focused minutes earn **◆ Focus**.
+3. When the timer runs out (or you press *Finish & log*), a dialog asks for the focus's **metrics**, a 1–5 focus rating and an optional note.
+4. Metrics turn into **points**. Points earn **XP** for the focus, and focused minutes earn **◆ Momentum**.
    **Productivity** = points per focused hour, recorded in the Session Log.
-5. Each skill passively generates its **own currency** every second. The rate grows with its level and its recent productivity. Up to 8h of progress is credited while you're away.
+5. Each focus passively generates its **own currency** every second. The rate grows with its level and its recent productivity. Up to 8h of progress is credited while you're away.
+
+### Pace and daily goals
+
+The **pace card** under "Working on" shows the selected focus's last session as a per-minute rate (e.g. `60 chars/min`).
+
+Give a focus a **daily goal** in its editor: focus time (hours) or one of its metrics, plus a time window. For example, *3h of focus time from 6:00 to 14:05*. The card then compares what you've done against an even pace through that window. For example, at 10:21 with 1h 23m done it shows `1h 23m / 4h 21m ▼ 13m behind`, along with your pace vs. the pace you need and where you're on track to finish. Time goals include the session currently on the timer.
 
 ### Breaks
 
-Click the **You** node on the Skill Map to take a break. Pick a preset (take a walk, drink water, answer texts…): ones with minutes count down, and open-ended ones count up like a stopwatch.
+Click the **You** node on the Focus Map to take a break. Pick a preset (take a walk, drink water, answer texts…): ones with minutes count down, and open-ended ones count up like a stopwatch.
 
-- Breaks never cost anything. Skills keep generating, and the break is only logged in today's summary.
-- A focus session that's running pauses and waits for you. Starting focus again ends the break.
-- While on a break you can change the focus timer's length and rearrange or edit skills.
+- Breaks never cost anything. Foci keep generating, and a running focus session pauses and waits for you. Starting focus again ends the break.
+- While on a break you can change the focus timer's length and rearrange or edit foci.
 - **Manage presets** in the break picker lets you add, edit or remove presets.
+
+**Break bonuses.** Each preset has categories (a walk is 🧠 + 💪, a hybrid). When a break ends, every focus in those categories produces **×2 idle output** for a while. How long depends on the break:
+
+| Break length | Bonus length |
+|---|---|
+| 1 min | ~1 min |
+| 2.5 min | ~8 min |
+| **5–10 min (sweet spot)** | **30 min** |
+| 15 min | ~23 min |
+| 20 min | ~11 min |
+| 30 min | under 1 min |
+
+The end-of-break dialog then fine-tunes it: an optional measure (e.g. steps, target 1000) adds up to +25%, and "how refreshed do you feel?" (1–5) adds or removes up to 20%. Skipping them never lowers the bonus. Bonuses for the same category stack up to 60 minutes and show in the top bar. Boosted foci glow on the map.
 
 ## Project layout
 
@@ -42,19 +60,23 @@ Click the **You** node on the Skill Map to take a break. Pick a preset (take a w
 | `css/styles.css` | All styling. Themes are CSS custom properties under `[data-theme]` |
 | `js/main.js` | Entry point. Wires every module together, plus export/import/reset |
 | `js/state.js` | The single state object, pub/sub by topic, localStorage save and migrations |
-| `js/economy.js` | **All balance formulas** (XP curve, idle rate, scoring). Tune here |
-| `js/skills.js` | Skill data model, CRUD, metric presets, add/edit dialog |
-| `js/skillMap.js` | SVG skill map: drag, select, XP rings, live currency |
+| `js/economy.js` | **All balance formulas** (XP curve, idle rate, scoring, break-bonus curve). Tune here |
+| `js/categories.js` | The Mental / Physical / Life balance categories |
+| `js/skills.js` | Focus data model, CRUD, metric presets, add/edit dialog (category, metrics, daily goal) |
+| `js/skillMap.js` | SVG Focus Map: drag, select, XP rings, category badges, live currency |
 | `js/timer.js` | Countdown/stopwatch built on timestamps (accurate in background tabs, survives reloads) |
-| `js/breaks.js` | Breaks: presets, picker/manager dialog, banner, start/end logic |
+| `js/breaks.js` | Breaks: presets, picker/manager dialog, banner, end-of-break bonus |
+| `js/goals.js` | Pace card: last-session rate and daily-goal pace |
 | `js/sessionModal.js` | End-of-session metric entry and `logSession()` |
 | `js/clock.js` | World clock: 12/24h toggle, main zone, extra zone list |
 | `js/idle.js` | 1s generation tick and offline progress |
 | `js/history.js` | Session log table and today's summary |
-| `js/hud.js` | Top-bar currency totals |
+| `js/hud.js` | Top-bar currency totals and active break bonuses |
 | `js/ui.js`, `js/format.js` | DOM helpers, toasts, chime, notifications, number/time formatting |
 
 ### State and data flow
+
+In code, a focus is called a `skill` (`state.skills`, `skills.js`).
 
 Modules never touch each other's DOM. They change state through `store.update(topic, fn)` and react with `store.subscribe(topic, render)`. The topics are `skills`, `selection`, `currency`, `sessions`, `clock`, `timer`, `break` and `layout`. Saves are debounced and also flushed when the tab is hidden or closed.
 
@@ -64,7 +86,7 @@ In the dev console, `focusIdle.store.state` shows the live state.
 
 ## Extension points for later
 
-- **Skill customization/themes**: each skill already has `color`, `icon`, `pos` and a reserved `theme` field. Node rendering is all in `skillMap.js → render()`.
+- **Focus customization/themes**: each focus already has `color`, `icon`, `pos` and a reserved `theme` field. Node rendering is all in `skillMap.js → render()`.
 - **App themes**: add a `[data-theme="..."]` block in `styles.css` (a `paper` light theme is already there) and toggle `document.documentElement.dataset.theme`.
-- **Spending currency**: skill `currency` and global `focus` add up but nothing spends them yet. Upgrades and a shop would hook into `economy.idleRate()`.
+- **Spending currency**: each focus's `currency` and global `momentum` add up but nothing spends them yet. Upgrades and a shop would hook into `economy.idleRate()`.
 - **More metric types**: presets are in `skills.js → METRIC_PRESETS`.

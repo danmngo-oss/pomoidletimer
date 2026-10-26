@@ -1,8 +1,9 @@
-// SVG map of skills orbiting a central "You" hub. Nodes are draggable.
+// SVG Focus Map: foci ("skills" in code) orbit a central "You" hub. Nodes are draggable.
 import { store } from './state.js';
 import { $, svgEl } from './ui.js';
 import { fmtNum, fmtRate } from './format.js';
-import { idleRate, xpToNext } from './economy.js';
+import { BREAK_BUFF_MULT, effectiveRate, isBuffed, xpToNext } from './economy.js';
+import { CATEGORIES } from './categories.js';
 import { MAP, openSkillEditor, selectSkill } from './skills.js';
 import { breakStatus, onBreakTick, openBreakPicker } from './breaks.js';
 
@@ -32,7 +33,7 @@ export function initSkillMap() {
   hub.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBreakPicker(); }
   });
-  const emptyHint = svgEl('text', { class: 'map-empty', x: MAP.hub.x, y: MAP.hub.y + 90, 'text-anchor': 'middle' }, 'Add your first skill to start generating currency');
+  const emptyHint = svgEl('text', { class: 'map-empty', x: MAP.hub.x, y: MAP.hub.y + 90, 'text-anchor': 'middle' }, 'Add your first focus to start generating currency');
   svg.append(edges, hub, nodes, emptyHint);
 
   const refs = new Map(); // skill id -> { g, line, stats, currency, ring }
@@ -100,6 +101,13 @@ export function initSkillMap() {
       const ring = svgEl('circle', { class: 'xp-ring', r: R + 7, pathLength: 100, transform: 'rotate(-90)' });
       const currency = svgEl('text', { class: 'node-currency', y: -R - 16, 'text-anchor': 'middle' });
       const stats = svgEl('text', { class: 'node-stats', y: R + 40, 'text-anchor': 'middle' });
+      const category = CATEGORIES[skill.category] ?? CATEGORIES.mental;
+      const badge = svgEl('g', { class: 'cat-badge', transform: `translate(${R * 0.74} ${R * 0.74})` });
+      badge.append(
+        svgEl('title', {}, category.label),
+        svgEl('circle', { r: 13 }),
+        svgEl('text', { 'text-anchor': 'middle', 'dominant-baseline': 'central' }, category.icon),
+      );
       g.append(
         svgEl('circle', { class: 'select-ring', r: R + 14 }),
         svgEl('circle', { class: 'xp-track', r: R + 7 }),
@@ -109,6 +117,7 @@ export function initSkillMap() {
         svgEl('text', { class: 'node-name', y: R + 22, 'text-anchor': 'middle' }, skill.name),
         stats,
         currency,
+        badge,
       );
       g.addEventListener('dblclick', () => openSkillEditor(skill.id));
       g.addEventListener('keydown', (e) => {
@@ -127,16 +136,19 @@ export function initSkillMap() {
   function refreshHub(st = breakStatus()) {
     hub.classList.toggle('on-break', !!st);
     hubLabel.textContent = st ? st.icon : 'You';
-    hubFocus.textContent = st ? st.text : `◆ ${fmtNum(store.state.focus)}`;
+    hubFocus.textContent = st ? st.text : `◆ ${fmtNum(store.state.momentum)}`;
   }
 
   function refreshNumbers() {
     refreshHub();
+    const { buffs } = store.state;
     for (const skill of store.state.skills) {
       const ref = refs.get(skill.id);
       if (!ref) continue;
+      const buffed = isBuffed(buffs, skill.category);
+      ref.g.classList.toggle('buffed', buffed);
       ref.currency.textContent = fmtNum(skill.currency);
-      ref.stats.textContent = `Lv ${skill.level} · +${fmtRate(idleRate(skill))}/s`;
+      ref.stats.textContent = `Lv ${skill.level} · +${fmtRate(effectiveRate(skill, buffs))}/s${buffed ? ` ×${BREAK_BUFF_MULT}` : ''}`;
       const pct = Math.min(100, (skill.xp / xpToNext(skill.level)) * 100);
       ref.ring.setAttribute('stroke-dasharray', `${pct} 100`);
     }
