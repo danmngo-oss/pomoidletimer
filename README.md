@@ -36,7 +36,7 @@ Click the **You** node on the Skill Map to take a break. Pick a preset (take a w
 
 | File | Responsibility |
 |---|---|
-| `index.html` | Static page structure: four panels and two `<dialog>`s |
+| `index.html` | Static page structure: four panels and three `<dialog>`s (session, skill, break) |
 | `css/styles.css` | All styling. Themes are CSS custom properties under `[data-theme]` |
 | `js/main.js` | Entry point. Wires every module together, plus export/import/reset |
 | `js/state.js` | The single state object, pub/sub by topic, localStorage save and migrations |
