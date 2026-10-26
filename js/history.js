@@ -22,10 +22,13 @@ export function initHistory() {
     const measured = today.filter((s) => !s.timeOnly);
     const outputPts = measured.reduce((sum, s) => sum + s.points, 0);
     const measuredHours = measured.reduce((sum, s) => sum + s.focusMs, 0) / 3_600_000;
-    $('history-summary').textContent = today.length
-      ? `Today: ${today.length} session${today.length > 1 ? 's' : ''} · ${fmtDuration(focusMs)} focused` +
-        (measuredHours ? ` · ${fmtNum(outputPts / measuredHours)} pts/hr` : '')
-      : 'No sessions today yet';
+    const breaks = store.state.breaks.filter((b) => b.at >= startOfToday());
+    const breakMs = breaks.reduce((sum, b) => sum + b.durationMs, 0);
+    $('history-summary').textContent = [
+      today.length ? `Today: ${today.length} session${today.length > 1 ? 's' : ''} · ${fmtDuration(focusMs)} focused` : 'No sessions today yet',
+      measuredHours && `${fmtNum(outputPts / measuredHours)} pts/hr`,
+      breaks.length && `${breaks.length} break${breaks.length > 1 ? 's' : ''} (${fmtDuration(breakMs)})`,
+    ].filter(Boolean).join(' · ');
 
     if (!sessions.length) {
       body.replaceChildren(el('tr', {}, el('td', { colSpan: 6, class: 'muted empty' }, 'Finish a focus session to see it here.')));
@@ -41,6 +44,6 @@ export function initHistory() {
       el('td', {}, `+${fmtNum(s.xp)} XP · +${fmtNum(s.focus)} ◆`))));
   }
 
-  store.subscribe('sessions', render);
+  store.subscribe(['sessions', 'break'], render);
   render();
 }

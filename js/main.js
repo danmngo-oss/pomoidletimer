@@ -7,6 +7,7 @@ import { initSkillMap } from './skillMap.js';
 import { initHistory } from './history.js';
 import { initHud } from './hud.js';
 import { initIdle } from './idle.js';
+import { initBreaks } from './breaks.js';
 
 function initSaveMenu() {
   $('export-btn').addEventListener('click', () => {
@@ -44,6 +45,7 @@ if (isFirstRun) seedStarterSkills();
 initClock();
 initSkillMap();
 initTimer();
+initBreaks();
 initHistory();
 initHud();
 initSaveMenu();

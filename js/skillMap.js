@@ -4,6 +4,7 @@ import { $, svgEl } from './ui.js';
 import { fmtNum, fmtRate } from './format.js';
 import { idleRate, xpToNext } from './economy.js';
 import { MAP, openSkillEditor, selectSkill } from './skills.js';
+import { breakStatus, onBreakTick, openBreakPicker } from './breaks.js';
 
 const R = 44;
 
@@ -13,13 +14,24 @@ export function initSkillMap() {
 
   const edges = svgEl('g', { class: 'edges' });
   const nodes = svgEl('g', { class: 'nodes' });
+  // The hub doubles as the break button.
   const hubFocus = svgEl('text', { class: 'hub-sub', y: 22, 'text-anchor': 'middle' });
-  const hub = svgEl('g', { class: 'hub', transform: `translate(${MAP.hub.x} ${MAP.hub.y})` });
+  const hubLabel = svgEl('text', { class: 'hub-label', y: -2, 'text-anchor': 'middle' }, 'You');
+  const hub = svgEl('g', {
+    class: 'hub', role: 'button', tabindex: 0, 'aria-label': 'Take a break',
+    transform: `translate(${MAP.hub.x} ${MAP.hub.y})`,
+  });
   hub.append(
-    svgEl('circle', { r: 36 }),
-    svgEl('text', { class: 'hub-label', y: -2, 'text-anchor': 'middle' }, 'You'),
+    svgEl('title', {}, 'Take a break'),
+    svgEl('circle', { class: 'hub-pulse', r: 36 }),
+    svgEl('circle', { class: 'hub-body', r: 36 }),
+    hubLabel,
     hubFocus,
   );
+  hub.addEventListener('click', openBreakPicker);
+  hub.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBreakPicker(); }
+  });
   const emptyHint = svgEl('text', { class: 'map-empty', x: MAP.hub.x, y: MAP.hub.y + 90, 'text-anchor': 'middle' }, 'Add your first skill to start generating currency');
   svg.append(edges, hub, nodes, emptyHint);
 
@@ -112,8 +124,14 @@ export function initSkillMap() {
     refreshSelection();
   }
 
+  function refreshHub(st = breakStatus()) {
+    hub.classList.toggle('on-break', !!st);
+    hubLabel.textContent = st ? st.icon : 'You';
+    hubFocus.textContent = st ? st.text : `◆ ${fmtNum(store.state.focus)}`;
+  }
+
   function refreshNumbers() {
-    hubFocus.textContent = `◆ ${fmtNum(store.state.focus)}`;
+    refreshHub();
     for (const skill of store.state.skills) {
       const ref = refs.get(skill.id);
       if (!ref) continue;
@@ -132,6 +150,8 @@ export function initSkillMap() {
   store.subscribe('skills', render);
   store.subscribe('currency', refreshNumbers);
   store.subscribe('selection', refreshSelection);
+  store.subscribe('break', () => refreshHub());
+  onBreakTick(refreshHub);
 
   $('map-add').addEventListener('click', () => openSkillEditor(null, selectSkill));
   $('map-edit').addEventListener('click', () => {

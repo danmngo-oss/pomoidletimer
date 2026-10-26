@@ -23,6 +23,15 @@ python3 -m http.server 8000      # or: npx serve
    **Productivity** = points per focused hour, recorded in the Session Log.
 5. Each skill passively generates its **own currency** every second. The rate grows with its level and its recent productivity. Up to 8h of progress is credited while you're away.
 
+### Breaks
+
+Click the **You** node on the Skill Map to take a break. Pick a preset (take a walk, drink water, answer texts…): ones with minutes count down, and open-ended ones count up like a stopwatch.
+
+- Breaks never cost anything. Skills keep generating, and the break is only logged in today's summary.
+- A focus session that's running pauses and waits for you. Starting focus again ends the break.
+- While on a break you can change the focus timer's length and rearrange or edit skills.
+- **Manage presets** in the break picker lets you add, edit or remove presets.
+
 ## Project layout
 
 | File | Responsibility |
@@ -35,6 +44,7 @@ python3 -m http.server 8000      # or: npx serve
 | `js/skills.js` | Skill data model, CRUD, metric presets, add/edit dialog |
 | `js/skillMap.js` | SVG skill map: drag, select, XP rings, live currency |
 | `js/timer.js` | Countdown/stopwatch built on timestamps (accurate in background tabs, survives reloads) |
+| `js/breaks.js` | Breaks: presets, picker/manager dialog, banner, start/end logic |
 | `js/sessionModal.js` | End-of-session metric entry and `logSession()` |
 | `js/clock.js` | World clock: 12/24h toggle, main zone, extra zone list |
 | `js/idle.js` | 1s generation tick and offline progress |
@@ -44,7 +54,7 @@ python3 -m http.server 8000      # or: npx serve
 
 ### State and data flow
 
-Modules never touch each other's DOM. They change state through `store.update(topic, fn)` and react with `store.subscribe(topic, render)`. The topics are `skills`, `selection`, `currency`, `sessions`, `clock`, `timer` and `layout`. Saves are debounced and also flushed when the tab is hidden or closed.
+Modules never touch each other's DOM. They change state through `store.update(topic, fn)` and react with `store.subscribe(topic, render)`. The topics are `skills`, `selection`, `currency`, `sessions`, `clock`, `timer`, `break` and `layout`. Saves are debounced and also flushed when the tab is hidden or closed.
 
 If you change the save shape, bump `SAVE_VERSION` and add an upgrade step to `migrate()` in `state.js`.
 

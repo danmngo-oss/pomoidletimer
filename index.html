@@ -51,6 +51,7 @@
           <button type="button" data-mode="stopwatch">Stopwatch</button>
         </div>
       </div>
+      <div id="break-banner" class="break-banner" hidden></div>
       <label class="field">Working on
         <select id="timer-skill"></select>
       </label>
@@ -81,7 +82,7 @@
         </div>
       </div>
       <svg id="skill-map" class="skill-map" role="group" aria-label="Skill map"></svg>
-      <p class="muted hint">Click a skill to focus on it · drag to rearrange · double-click to edit</p>
+      <p class="muted hint">Click a skill to focus on it · drag to rearrange · double-click to edit · click <strong>You</strong> to take a break</p>
     </section>
 
     <!-- Session history -->
@@ -103,6 +104,7 @@
 
   <dialog id="session-dialog" class="dialog"></dialog>
   <dialog id="skill-dialog" class="dialog"></dialog>
+  <dialog id="break-dialog" class="dialog"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 </body>
 </html>

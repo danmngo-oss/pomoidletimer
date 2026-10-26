@@ -1,11 +1,13 @@
 // Central game state: a single plain object, persisted to localStorage.
 // Modules mutate it through store.update(topic, fn) so subscribers re-render.
 
+import { uid } from './format.js';
+
 const SAVE_KEY = 'focusIdle.save';
 export const SAVE_VERSION = 1;
 
 // Every topic a module may subscribe to.
-export const TOPICS = ['skills', 'selection', 'currency', 'sessions', 'clock', 'timer', 'layout'];
+export const TOPICS = ['skills', 'selection', 'currency', 'sessions', 'clock', 'timer', 'break', 'layout'];
 
 function localZone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
@@ -25,6 +27,15 @@ export function createDefaultState() {
       startedAt: null,        // epoch ms while running, null while paused/stopped
       elapsedMs: 0,           // time banked before the current run
     },
+    breakPresets: [           // durationMs: null = open-ended (stopwatch)
+      { id: uid(), name: 'Take a walk', icon: '🚶', durationMs: 10 * 60_000 },
+      { id: uid(), name: 'Drink water', icon: '💧', durationMs: 2 * 60_000 },
+      { id: uid(), name: 'Answer texts', icon: '📱', durationMs: 5 * 60_000 },
+      { id: uid(), name: 'Stretch', icon: '🧘', durationMs: 5 * 60_000 },
+      { id: uid(), name: 'Open break', icon: '☕', durationMs: null },
+    ],
+    activeBreak: null,        // { presetId, name, icon, durationMs, startedAt }
+    breaks: [],               // log of finished breaks, newest first
     lastSeen: Date.now(),     // used for offline idle progress
   };
 }

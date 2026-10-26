@@ -5,10 +5,22 @@ import { $, el, chime, notify, primeAudio, requestNotifications, toast } from '.
 import { fmtClock } from './format.js';
 import { selectSkill } from './skills.js';
 import { openSessionModal } from './sessionModal.js';
+import { endBreak } from './breaks.js';
 
 const elapsed = (t) => t.elapsedMs + (t.startedAt ? Date.now() - t.startedAt : 0);
 const isRunning = (t) => t.startedAt != null;
 const TITLE = document.title;
+
+const setTimer = (patch) => store.update('timer', (s) => Object.assign(s.timer, patch));
+
+export const focusElapsed = () => elapsed(store.state.timer);
+
+// Banks the running session's time. Returns true if it was running.
+export function pauseFocusTimer() {
+  if (!isRunning(store.state.timer)) return false;
+  setTimer({ elapsedMs: focusElapsed(), startedAt: null });
+  return true;
+}
 
 export function initTimer() {
   const display = $('timer-display');
@@ -17,16 +29,11 @@ export function initTimer() {
   const startBtn = $('timer-start');
   const skillSelect = $('timer-skill');
 
-  const setTimer = (patch) => store.update('timer', (s) => Object.assign(s.timer, patch));
-
   function start() {
     primeAudio();
     requestNotifications();
+    endBreak({ quiet: true });
     setTimer({ startedAt: Date.now() });
-  }
-
-  function pause() {
-    setTimer({ elapsedMs: elapsed(store.state.timer), startedAt: null });
   }
 
   function reset() {
@@ -49,7 +56,13 @@ export function initTimer() {
   }
 
   function setDuration(minutes) {
-    const m = Math.min(600, Math.max(1, Math.round(minutes) || 25));
+    let m = Math.min(600, Math.max(1, Math.round(minutes) || 25));
+    // Mid-session (e.g. adjusting during a break) it can't go below time already focused.
+    const minM = Math.ceil(focusElapsed() / 60_000);
+    if (m < minM) {
+      m = minM;
+      toast(`You've already focused ${m - 1}+ min this session, so the timer is set to ${m} min.`);
+    }
     setTimer({ durationMs: m * 60_000 });
   }
 
@@ -66,7 +79,7 @@ export function initTimer() {
     btn.addEventListener('click', () => setDuration(Number(btn.dataset.preset)));
   }
   minutesInput.addEventListener('change', () => setDuration(Number(minutesInput.value)));
-  startBtn.addEventListener('click', () => (isRunning(store.state.timer) ? pause() : start()));
+  startBtn.addEventListener('click', () => (isRunning(store.state.timer) ? pauseFocusTimer() : start()));
   $('timer-finish').addEventListener('click', () => finish(false));
   $('timer-reset').addEventListener('click', () => {
     if (elapsed(store.state.timer) > 60_000 && !confirm('Discard this session without logging it?')) return;
@@ -82,9 +95,8 @@ export function initTimer() {
       btn.setAttribute('aria-pressed', String(btn.dataset.mode === t.mode));
     }
     $('timer-duration').hidden = t.mode !== 'countdown';
-    // Lock the duration once a session is underway; reset to change it.
-    const locked = running || e > 0;
-    for (const input of $('timer-duration').querySelectorAll('input, button')) input.disabled = locked;
+    // Duration is editable whenever the clock isn't ticking (e.g. during a break).
+    for (const input of $('timer-duration').querySelectorAll('input, button')) input.disabled = running;
     minutesInput.value = Math.round(t.durationMs / 60_000);
     startBtn.textContent = running ? 'Pause' : e > 0 ? 'Resume' : 'Start';
     $('timer-finish').disabled = e === 0;
