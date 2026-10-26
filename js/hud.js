@@ -1,4 +1,8 @@
-// Top bar: currency totals and active break bonuses.
+// ============================================================================
+// hud.js — the top bar ("heads-up display"): currency totals, the combined
+// idle rate, and a chip with a countdown for each active break bonus.
+// It redraws every second, driven by the idle loop's 'currency' updates.
+// ============================================================================
 import { store } from './state.js';
 import { $, el } from './ui.js';
 import { fmtClock, fmtNum, fmtRate } from './format.js';
@@ -7,6 +11,8 @@ import { CATEGORIES, CATEGORY_IDS } from './categories.js';
 
 export function initHud() {
   const hud = $('hud');
+  // The <strong> elements hold the numbers; they're built once and only
+  // their text changes.
   const momentum = el('strong');
   const rate = el('strong');
   const skillCurrency = el('strong');
@@ -22,8 +28,10 @@ export function initHud() {
     const { skills } = store.state;
     const now = Date.now();
     momentum.textContent = fmtNum(store.state.momentum);
+    // Totals across every focus.
     skillCurrency.textContent = fmtNum(skills.reduce((sum, s) => sum + s.currency, 0));
     rate.textContent = `${fmtRate(skills.reduce((sum, s) => sum + effectiveRate(s, store.state.buffs, now), 0))}/s`;
+    // One chip per category whose bonus hasn't expired, e.g. "🧠 ×2 12:30".
     buffs.replaceChildren(...CATEGORY_IDS
       .filter((c) => (store.state.buffs[c] ?? 0) > now)
       .map((c) => el('span', { class: 'buff-chip', title: `${CATEGORIES[c].label} foci produce ×${BREAK_BUFF_MULT} from a break bonus` },
