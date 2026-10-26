@@ -4,6 +4,8 @@ An idle game for the browser that turns real focus sessions into game progress. 
 
 No build step and no dependencies: plain HTML, CSS and ES modules.
 
+**Play it online:** https://danmngo-oss.github.io/pomoidletimer/
+
 ## Run it
 
 ES modules won't load from `file://`, so serve the folder:
