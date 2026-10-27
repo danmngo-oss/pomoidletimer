@@ -12,6 +12,7 @@ import { $, el, toast } from './ui.js';
 import { fmtDuration, fmtNum, uid } from './format.js';
 import { applyXp, MAX_HISTORY, nextAvgProductivity, scoreSession } from './economy.js';
 import { getSkill, openSkillEditor } from './skills.js';
+import { recordSessionTotals, sessionTotalsRows } from './goals.js';
 
 // Records a finished session and pays out its rewards.
 // `values` maps metric id -> the amount the user entered.
@@ -67,6 +68,9 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
   // handlers below (a "closure"), which is how the dialog remembers what's
   // been typed without storing it in the game state.
   const values = {};
+  // Metric id -> running-total entries [{ id, label, prev, total, isNew }],
+  // for a metric the player reports as totals (see totalsField below).
+  let totalsEntries = {};
   let rating = 3;
   let note = '';
 
@@ -80,9 +84,50 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
     if (skill) skillSelect.value = skill.id;
   }
 
-  // One number input per metric of the chosen focus. Rebuilt when the focus
-  // dropdown changes, since each focus has different metrics.
+  // For a metric tracked with Running totals: instead of "how much did you
+  // do?", list each running-total row with its last total and let the player
+  // type the new totals. The session's output is the sum of the changes.
+  function totalsField(m, rows) {
+    const entries = rows.map((r) => ({ id: r.id, label: r.label, prev: Number(r.current) || 0, total: Number(r.current) || 0 }));
+    totalsEntries[m.id] = entries;
+    const list = el('div', { class: 'totals-rows' });
+    const sessionGain = el('strong');
+    const recompute = () => {
+      values[m.id] = entries.reduce((sum, e) => sum + (e.total - e.prev), 0);
+      sessionGain.textContent = `${values[m.id] < 0 ? '−' : '+'}${fmtNum(Math.abs(values[m.id]))} ${m.unit}`;
+      updatePreview();
+    };
+    const renderList = () => list.replaceChildren(...entries.map((e) => el('div', { class: 'totals-row session-total' },
+      e.isNew
+        ? el('input', { placeholder: 'New document', value: e.label, 'aria-label': 'New document name', oninput: (ev) => { e.label = ev.target.value; } })
+        : el('span', {}, e.label || 'Untitled'),
+      el('input', {
+        type: 'number', step: 'any', inputMode: 'decimal', value: e.total,
+        'aria-label': `Current total for ${e.label || 'this row'}`,
+        oninput: (ev) => { e.total = Number(ev.target.value) || 0; recompute(); },
+      }),
+      el('span', { class: 'muted small' }, e.isNew ? 'new' : `was ${fmtNum(e.prev)}`))));
+    renderList();
+    values[m.id] = 0;
+    sessionGain.textContent = `+0 ${m.unit}`;
+    return el('div', { class: 'field' }, `${m.label}: your current totals`,
+      list,
+      el('div', { class: 'row' },
+        el('button', {
+          type: 'button', class: 'chip',
+          onclick: () => { entries.push({ id: uid(), label: '', prev: 0, total: 0, isNew: true }); renderList(); },
+        }, '+ New document'),
+        el('span', { class: 'grow' }),
+        el('span', { class: 'muted small' }, 'This session:'),
+        sessionGain),
+      el('small', { class: 'muted' }, `The change since your last totals is this session's output. ${m.perPoint} ${m.unit} = 1 point.`));
+  }
+
+  // One number input per metric of the chosen focus (or a totals list, see
+  // totalsField). Rebuilt when the focus dropdown changes, since each focus
+  // has different metrics.
   function renderFields() {
+    totalsEntries = {};
     submitBtn.disabled = !skill;
     if (!skill) {
       // No foci exist yet: offer to create one right here, then continue.
@@ -96,19 +141,27 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
       return;
     }
     fields.replaceChildren(
-      ...skill.metrics.map((m) => el('label', { class: 'field' }, m.label || 'Unnamed metric',
-        el('div', { class: 'input-unit' },
-          el('input', {
-            type: 'number', min: '0', step: 'any', inputMode: 'decimal', placeholder: '0',
-            value: values[m.id] ?? '',
-            oninput: (e) => { values[m.id] = e.target.value; updatePreview(); },
-          }),
-          el('span', { class: 'unit' }, m.unit)),
-        el('small', { class: 'muted' }, `${m.perPoint} ${m.unit} = 1 point`))),
+      ...skill.metrics.map((m) => {
+        const rows = sessionTotalsRows(skill, m.id);
+        return rows?.length ? totalsField(m, rows) : metricField(m);
+      }),
       ...(skill.metrics.length ? [] : [el('p', { class: 'muted' },
         'This focus has no metrics yet, so you\'ll get time-based credit. Edit it on the Focus Map to add some.')]),
     );
     updatePreview();
+  }
+
+  // The plain "how much did you do?" input for one metric.
+  function metricField(m) {
+    return el('label', { class: 'field' }, m.label || 'Unnamed metric',
+      el('div', { class: 'input-unit' },
+        el('input', {
+          type: 'number', min: '0', step: 'any', inputMode: 'decimal', placeholder: '0',
+          value: values[m.id] ?? '',
+          oninput: (e) => { values[m.id] = e.target.value; updatePreview(); },
+        }),
+        el('span', { class: 'unit' }, m.unit)),
+      el('small', { class: 'muted' }, `${m.perPoint} ${m.unit} = 1 point`));
   }
 
   // The three reward boxes at the bottom, recalculated on every keystroke
@@ -135,6 +188,11 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
       e.preventDefault();
       if (!skill) return;
       const { result, levelsGained } = logSession({ skill, values, focusMs, rating, note: note.trim() });
+      // Save the new running totals (skipping untouched rows and empty new ones).
+      for (const entries of Object.values(totalsEntries)) {
+        const changed = entries.filter((e) => (e.isNew ? e.total || e.label.trim() : e.total !== e.prev));
+        if (changed.length) recordSessionTotals(skill.id, changed.map((e) => ({ id: e.id, label: e.label.trim(), total: e.total })));
+      }
       dlg.close();
       toast(`${skill.icon} ${skill.name}: +${fmtNum(result.xp)} XP, +${fmtNum(result.momentum)} ◆`, { kind: 'success' });
       if (levelsGained) toast(`${skill.name} reached level ${getSkill(skill.id).level}! Idle output increased.`, { kind: 'level' });

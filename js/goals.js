@@ -46,10 +46,15 @@ const fmtAmount = (p, v) => (p.isTime ? fmtDuration(v) : `${fmtNum(v)} ${p.unit}
 // Stored on the focus as goalAdjust = { day, measure, amount, rows }:
 //   amount — a signed correction from "Add / remove" or "Set from rate"
 //            (ms for time goals, metric units otherwise)
-//   rows   — "Running totals": [{ id, label, start, current, updatedAt }],
+//   rows   — "Running totals": [{ id, label, start, base, current, updatedAt }],
 //            one per document/counter, in the units the player types
-//            (minutes for time goals). `current` is the last total entered;
-//            each row adds current − start to today's progress.
+//            (minutes for time goals):
+//              current — the last total entered
+//              start   — the total at the start of the day ("+X today")
+//              base    — how far a logged session has already counted.
+//            Totals entered in the session dialog score as that session's
+//            output and move `base` up with them, so the goal adds only
+//            current − base and never counts the same work twice.
 // It only counts for the same goal measure, and only on the day it was made,
 // except that rows carry over to the next day (see todaysAdjust).
 
@@ -60,25 +65,28 @@ const dayKey = (now) => {
 };
 
 // Today's adjustment for a focus as { amount, rows }. Rows saved on an
-// earlier day carry over with start = their last total, so a document you
-// keep working on starts each new day at +0 instead of vanishing.
+// earlier day carry over with start (and base) = their last total, so a
+// document you keep working on starts each new day at +0 instead of vanishing.
 function todaysAdjust(skill, now = Date.now()) {
   const a = skill.goalAdjust;
   if (!a || a.measure !== skill.goal?.measure) return { amount: 0, rows: [] };
   if (a.day === dayKey(now)) return { amount: a.amount ?? 0, rows: a.rows ?? [] };
-  return { amount: 0, rows: (a.rows ?? []).map((r) => ({ ...r, start: r.current })) };
+  return { amount: 0, rows: (a.rows ?? []).map((r) => ({ ...r, start: r.current, base: r.current })) };
 }
 
-// How far a running-total row has moved since its start (typed units).
-const rowGain = (r) => (Number(r.current) || 0) - (Number(r.start) || 0);
+// A row's growth today (what "+X today" shows), and the part of it no logged
+// session has counted yet (what the goal adjustment adds). Typed units.
+// Rows saved before `base` existed fall back to `start`.
+const rowToday = (r) => (Number(r.current) || 0) - (Number(r.start) || 0);
+const rowUncounted = (r) => (Number(r.current) || 0) - (Number(r.base ?? r.start) || 0);
 // Typed units -> internal units (time goals are typed in minutes, kept in ms).
 const toInternal = (isTime, v) => (isTime ? v * 60_000 : v);
 
-// Today's corrections in internal units: the Add/remove amount and the sum
-// of all running-total rows.
+// Today's corrections in internal units: the Add/remove amount and the
+// not-yet-counted growth of all running-total rows.
 function currentAdjustment(skill, now) {
   const { amount, rows } = todaysAdjust(skill, now);
-  const rowsTotal = toInternal(skill.goal.measure === 'time', rows.reduce((sum, r) => sum + rowGain(r), 0));
+  const rowsTotal = toInternal(skill.goal.measure === 'time', rows.reduce((sum, r) => sum + rowUncounted(r), 0));
   return { amount, rowsTotal };
 }
 
@@ -90,6 +98,37 @@ export function updateGoalAdjust(skillId, change) {
     const adj = todaysAdjust(sk);
     change(adj);
     sk.goalAdjust = { day: dayKey(Date.now()), measure: sk.goal.measure, amount: adj.amount, rows: adj.rows };
+  });
+}
+
+// ---- Running totals in the session dialog ---------------------------------
+
+// The running-total rows the "Session complete" dialog should ask about for
+// this metric: only when Running totals is on and the goal tracks this
+// metric. Returns null otherwise (the dialog then asks for an amount).
+export function sessionTotalsRows(skill, metricId) {
+  if (skill.goalAdjustMode !== 'totals' || skill.goal?.measure !== metricId) return null;
+  return todaysAdjust(skill).rows;
+}
+
+// Saves the totals entered when a session is logged. `entries` are
+// [{ id, label, total }]; ids not in the rows yet become new rows (a document
+// started during the session, counted from 0). Each row's growth was scored
+// as the session's output, so `base` moves up by the same amount.
+export function recordSessionTotals(skillId, entries) {
+  const now = Date.now();
+  updateGoalAdjust(skillId, (a) => {
+    for (const e of entries) {
+      const row = a.rows.find((r) => r.id === e.id);
+      if (row) {
+        const counted = e.total - (Number(row.current) || 0);
+        row.base = (Number(row.base ?? row.start) || 0) + counted;
+        row.current = e.total;
+        row.updatedAt = now;
+      } else {
+        a.rows.push({ id: e.id, label: e.label, start: 0, base: e.total, current: e.total, updatedAt: now });
+      }
+    }
   });
 }
 
@@ -241,7 +280,7 @@ export function initGoalCard() {
   const newRowStart = el('input', { type: 'number', step: 'any', placeholder: '0', 'aria-label': 'Starting total' });
   function addTotalsRow() {
     const start = Number(newRowStart.value) || 0;
-    editRows((rows) => rows.push({ id: uid(), label: newRowName.value.trim(), start, current: start, updatedAt: Date.now() }));
+    editRows((rows) => rows.push({ id: uid(), label: newRowName.value.trim(), start, base: start, current: start, updatedAt: Date.now() }));
     newRowName.value = '';
     newRowStart.value = '';
   }
@@ -249,14 +288,14 @@ export function initGoalCard() {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTotalsRow(); });
   }
 
-  // Rebuilds the rows, but only when their structure changes (another focus,
-  // goal or day, or a row added/removed), so the per-second refresh never
-  // wipes what's being typed. Each row's box shows its last saved total; the
+  // Rebuilds the rows, but only when they change (another focus, goal or day,
+  // a row added/removed, or a total saved, e.g. from the session dialog), so
+  // the per-second refresh never wipes what's being typed. Each row's box shows its last saved total; the
   // player overwrites it, and it's saved when the box loses focus or Enter is
   // pressed. The "today" gain updates live while typing.
   function renderTotals(skill, p) {
     const { rows } = todaysAdjust(skill);
-    const key = [skill.id, skill.goal.measure, dayKey(Date.now()), ...rows.map((r) => r.id)].join('|');
+    const key = [skill.id, skill.goal.measure, dayKey(Date.now()), ...rows.map((r) => `${r.id}:${r.current}`)].join('|');
     if (key === totalsKey) return;
     totalsKey = key;
     const unit = p.isTime ? 'min' : p.unit;
@@ -270,7 +309,7 @@ export function initGoalCard() {
         const totalIn = el('input', { type: 'number', step: 'any', value: r.current, 'aria-label': `Latest total for ${r.label || 'this row'}` });
         // "Last updated 10:42 AM" as a tooltip on the total box.
         const showUpdated = (t) => { totalIn.title = t ? `Last updated ${clockFmt.format(t)}` : ''; };
-        const showGain = () => { gain.textContent = `${signed(p, toInternal(p.isTime, rowGain({ start: r.start, current: totalIn.value })))} today`; };
+        const showGain = () => { gain.textContent = `${signed(p, toInternal(p.isTime, rowToday({ start: r.start, current: totalIn.value })))} today`; };
         const saveRow = (patch) => editRows((rs) => {
           const row = rs.find((x) => x.id === r.id);
           if (row) Object.assign(row, patch);
@@ -400,9 +439,12 @@ export function initGoalCard() {
     totalsPane.hidden = mode !== 'totals';
     for (const btn of modeToggle.children) btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
     renderTotals(skill, p);
-    // Rate for the rows combined, over the window so far.
-    totalsSum.textContent = todaysAdjust(skill).rows.length
-      ? `Rows: ${signed(p, p.rowsTotal)}${p.elapsed >= 60_000 ? ` · ${rate(p.rowsTotal, p.elapsed)} over the window` : ''}`
+    // The rows' combined growth today and its rate over the window so far
+    // (including growth already logged through sessions).
+    const todaysRows = todaysAdjust(skill).rows;
+    const rowsToday = toInternal(p.isTime, todaysRows.reduce((sum, r) => sum + rowToday(r), 0));
+    totalsSum.textContent = todaysRows.length
+      ? `Rows: ${signed(p, rowsToday)} today${p.elapsed >= 60_000 ? ` · ${rate(rowsToday, p.elapsed)} over the window` : ''}`
       : '';
 
     // The text depends on whether we're before, during or after the window.

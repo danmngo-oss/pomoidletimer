@@ -36,6 +36,7 @@ Give a focus a **daily goal** in its editor: focus time (hours) or one of its me
 - **+ Add / − Remove** an amount (minutes for time goals, the metric's unit otherwise). Progress can't go below zero.
 - **Set from rate:** enter your average rate over the whole window so far (min/hr for time goals, unit/min for metrics). Today's progress becomes that rate × the time elapsed in the window.
 - **Running totals** (switch with the toggle at the top): instead of working out how much you added, each row shows your last total (e.g. a document's character count) and you type the new one over it. The difference since the row's starting total counts toward today's progress, shown as "+X today". Add a row per document, with a starting total of 0 for a new document or its current count if it already has work in it. The pace line and a combined rate cover all rows together, and rows carry over to the next day starting from their last total.
+  - With Running totals on and a goal that tracks a metric, **Finish & log** asks for your current totals too: each row shows its last total, you type the new ones (or add a **+ New document** row), and the change is the session's output. That part scores like any session input, and the goal won't count it a second time.
 
 Adjustments only change the goal display. They never affect XP, Momentum, currency, productivity or the session log. They reset at midnight or when you change what the goal measures, and **Reset** clears them early.
 

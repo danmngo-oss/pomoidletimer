@@ -426,3 +426,5 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .totals-row input, .totals-add input { width: 100%; min-width: 0; padding: 4px 6px; }
 .totals-head { font-size: .75rem; }
 .row-gain { font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--success); white-space: nowrap; }
+.totals-row.session-total { grid-template-columns: minmax(0, 1fr) 110px auto; }
+.totals-row.session-total > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
