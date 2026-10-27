@@ -49,6 +49,7 @@ export function makeSkill({ name, icon = '✦', color, category = 'mental', metr
     metrics: metrics.map((m) => ({ id: m.id ?? uid(), label: m.label, unit: m.unit, perPoint: m.perPoint })),
     goal,                 // { measure: 'time' | metricId, target, start: 'HH:MM', end: 'HH:MM' } or null
     goalAdjust: null,     // today's manual goal correction, see goals.js
+    goalAdjustMode: 'amount', // which adjust method the pace card shows: 'amount' | 'totals'
     pos: null,
     theme: null,          // reserved for future customization/themes
     createdAt: Date.now(),

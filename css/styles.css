@@ -417,3 +417,11 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .pace-adjust [hidden] { display: none; }
 .adjust-row { gap: 6px; }
 .adjust-row input { width: 90px; padding: 4px 8px; }
+.pace-adjust[open] .adjust-pane:not([hidden]) { display: flex; flex-direction: column; gap: 6px; }
+.adjust-mode { align-self: flex-start; }
+.totals-rows { display: flex; flex-direction: column; gap: 4px; }
+.totals-rows p { margin: 0; }
+.totals-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 64px auto auto; gap: 4px; align-items: center; }
+.totals-row input { width: 100%; min-width: 0; padding: 4px 6px; }
+.totals-head { font-size: .75rem; }
+.row-gain { font-variant-numeric: tabular-nums; font-size: .85rem; color: var(--success); white-space: nowrap; }

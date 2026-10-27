@@ -12,13 +12,15 @@
 //   projection  = done ÷ elapsed × window  → where you'll end up at this pace
 //
 // The card also lets the player correct today's progress by hand ("Adjust
-// progress"). Those corrections only change this goal display: they never
-// touch XP, Momentum, currency, productivity or the session log.
+// progress"), either by adding/removing an amount or by typing running totals
+// (e.g. a document's character count). Those corrections only change this
+// goal display: they never touch XP, Momentum, currency, productivity or the
+// session log.
 // ============================================================================
 import { store } from './state.js';
 import { $, el, toast } from './ui.js';
-import { fmtDuration, fmtNum } from './format.js';
-import { getSkill, openSkillEditor } from './skills.js';
+import { fmtDuration, fmtNum, uid } from './format.js';
+import { getSkill, openSkillEditor, updateSkill } from './skills.js';
 import { focusElapsed } from './timer.js';
 
 // Formats a moment as e.g. "2:05 PM" in the visitor's own locale.
@@ -41,10 +43,14 @@ const sessionMetric = (session, metric) =>
 const fmtAmount = (p, v) => (p.isTime ? fmtDuration(v) : `${fmtNum(v)} ${p.unit}`);
 
 // ---- Manual adjustments ----------------------------------------------------
-// Stored on the focus as goalAdjust = { day, measure, amount }: a signed
-// amount (ms for time goals, metric units otherwise) added to today's logged
-// progress. It only counts on the day it was made and for the same goal
-// measure, so it clears itself at midnight or when the goal is changed.
+// Stored on the focus as goalAdjust = { day, measure, amount, rows }:
+//   amount — a signed correction from "Add / remove" or "Set from rate"
+//            (ms for time goals, metric units otherwise)
+//   rows   — "Running totals": [{ id, label, start, current }], one per
+//            document/counter, in the units the player types (minutes for
+//            time goals). Each row adds current − start to today's progress.
+// It only counts for the same goal measure, and only on the day it was made,
+// except that rows carry over to the next day (see todaysAdjust).
 
 // Local calendar date of `now`, e.g. "2026-10-27".
 const dayKey = (now) => {
@@ -52,16 +58,37 @@ const dayKey = (now) => {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 };
 
-function currentAdjustment(skill, now) {
+// Today's adjustment for a focus as { amount, rows }. Rows saved on an
+// earlier day carry over with start = their last total, so a document you
+// keep working on starts each new day at +0 instead of vanishing.
+function todaysAdjust(skill, now = Date.now()) {
   const a = skill.goalAdjust;
-  return a && a.day === dayKey(now) && a.measure === skill.goal.measure ? a.amount : 0;
+  if (!a || a.measure !== skill.goal?.measure) return { amount: 0, rows: [] };
+  if (a.day === dayKey(now)) return { amount: a.amount ?? 0, rows: a.rows ?? [] };
+  return { amount: 0, rows: (a.rows ?? []).map((r) => ({ ...r, start: r.current })) };
 }
 
-// Replaces today's adjustment for a focus (0 removes it).
-export function setGoalAdjustment(skillId, amount) {
+// How far a running-total row has moved since its start (typed units).
+const rowGain = (r) => (Number(r.current) || 0) - (Number(r.start) || 0);
+// Typed units -> internal units (time goals are typed in minutes, kept in ms).
+const toInternal = (isTime, v) => (isTime ? v * 60_000 : v);
+
+// Today's corrections in internal units: the Add/remove amount and the sum
+// of all running-total rows.
+function currentAdjustment(skill, now) {
+  const { amount, rows } = todaysAdjust(skill, now);
+  const rowsTotal = toInternal(skill.goal.measure === 'time', rows.reduce((sum, r) => sum + rowGain(r), 0));
+  return { amount, rowsTotal };
+}
+
+// Edits today's adjustment for a focus. `change` receives { amount, rows }
+// and modifies it; the result is saved as today's.
+export function updateGoalAdjust(skillId, change) {
   store.update('skills', (s) => {
     const sk = s.skills.find((x) => x.id === skillId);
-    sk.goalAdjust = amount ? { day: dayKey(Date.now()), measure: sk.goal.measure, amount } : null;
+    const adj = todaysAdjust(sk);
+    change(adj);
+    sk.goalAdjust = { day: dayKey(Date.now()), measure: sk.goal.measure, amount: adj.amount, rows: adj.rows };
   });
 }
 
@@ -83,7 +110,8 @@ export function goalProgress(skill, state, now = Date.now()) {
     ? today.reduce((sum, s) => sum + s.focusMs, 0) + live
     : today.reduce((sum, s) => sum + sessionMetric(s, metric), 0);
   // Manual adjustments can lower progress, but never below zero.
-  const adjust = currentAdjustment(skill, now);
+  const { amount: adjustAmount, rowsTotal } = currentAdjustment(skill, now);
+  const adjust = adjustAmount + rowsTotal;
   const done = Math.max(0, logged + adjust);
 
   const start = atTime(goal.start, now);
@@ -98,7 +126,9 @@ export function goalProgress(skill, state, now = Date.now()) {
     unit: metric?.unit ?? '',
     done,                                  // logged + adjust (what the card shows)
     logged,                                // from sessions and the live timer only
-    adjust,
+    adjust,                                // adjustAmount + rowsTotal
+    adjustAmount,                          // from Add / remove and Set from rate
+    rowsTotal,                             // from Running totals rows
     live,
     target,
     expected: (target * elapsed) / span,   // where an even pace would be by now
@@ -140,7 +170,12 @@ export function initGoalCard() {
   const adjNote = el('span', { class: 'muted small' });
   const resetBtn = el('button', {
     type: 'button', class: 'ghost chip',
-    onclick: () => { const { skill } = current(); if (skill) setGoalAdjustment(skill.id, 0); },
+    onclick: () => {
+      const { skill } = current();
+      if (!skill) return;
+      if (todaysAdjust(skill).rows.length && !confirm('Clear today\'s adjustments, including the running-total rows?')) return;
+      updateGoalAdjust(skill.id, (a) => { a.amount = 0; a.rows = []; });
+    },
   }, 'Reset');
   const adjNoteRow = el('div', { class: 'row' }, adjNote, el('span', { class: 'grow' }), resetBtn);
 
@@ -151,10 +186,10 @@ export function initGoalCard() {
     if (!p || !(v > 0)) return toast('Enter an amount above 0 first.');
     const delta = p.isTime ? v * 60_000 : v;
     // Removing more than was logged would push progress below zero; cap it.
-    const next = Math.max(p.adjust + sign * delta, -p.logged);
-    setGoalAdjustment(skill.id, next);
+    const next = Math.max(p.adjustAmount + sign * delta, -(p.logged + p.rowsTotal));
+    updateGoalAdjust(skill.id, (a) => { a.amount = next; });
     adjAmount.value = '';
-    toast(`Goal progress ${sign > 0 ? '+' : '−'}${fmtAmount(p, Math.abs(next - p.adjust))}. Your scores are unchanged.`);
+    toast(`Goal progress ${sign > 0 ? '+' : '−'}${fmtAmount(p, Math.abs(next - p.adjustAmount))}. Your scores are unchanged.`);
   }
 
   // What a rate entered for the whole window so far adds up to: min/hr for
@@ -164,13 +199,13 @@ export function initGoalCard() {
   }
 
   // Sets today's progress to rate × time elapsed in the window, by choosing
-  // the adjustment that makes logged + adjustment equal that total.
+  // the amount that makes logged + rows + amount equal that total.
   function applyRate() {
     const { skill, p } = current();
     if (!p || rateInput.value === '' || !(Number(rateInput.value) >= 0)) return toast('Enter your rate first.');
     if (!p.elapsed) return toast('The goal window hasn\'t started yet.');
     const total = totalFromRate(p, Number(rateInput.value));
-    setGoalAdjustment(skill.id, total - p.logged);
+    updateGoalAdjust(skill.id, (a) => { a.amount = total - p.logged - p.rowsTotal; });
     rateInput.value = '';
     ratePreview.textContent = '';
     toast(`Goal progress set to ${fmtAmount(p, total)}. Your scores are unchanged.`);
@@ -185,17 +220,103 @@ export function initGoalCard() {
     ratePreview.textContent = p && p.elapsed && rateInput.value !== '' && v >= 0 ? `= ${fmtAmount(p, totalFromRate(p, v))} so far` : '';
   });
 
-  // A <details> element is collapsed until its <summary> is clicked.
-  const adjustBox = el('details', { class: 'pace-adjust' },
-    el('summary', {}, '✎ Adjust progress'),
-    el('p', { class: 'muted small' },
-      'Correct today\'s progress by hand, e.g. for work done away from the timer. This only changes the goal display; your XP, Momentum and currency are not affected.'),
+  // -- Running totals: one row per document/counter --
+  // Instead of working out "how much did I add?", the player types each
+  // document's current total and the row adds Now − Start.
+  const totalsRows = el('div', { class: 'totals-rows' });
+  const totalsSum = el('span', { class: 'muted small' });
+  // Remembers which rows are on screen, so renderTotals() can skip rebuilding.
+  let totalsKey = '';
+
+  // Applies `fn` to today's rows for the selected focus and saves them.
+  const editRows = (fn) => { const { skill } = current(); if (skill) updateGoalAdjust(skill.id, (a) => fn(a.rows)); };
+  // Signed amount for display, e.g. "+1,220 chars" or "−5m".
+  const signed = (p, v) => `${v < 0 ? '−' : '+'}${fmtAmount(p, Math.abs(v))}`;
+
+  function addTotalsRow() {
+    editRows((rows) => rows.push({ id: uid(), label: '', start: 0, current: 0 }));
+  }
+
+  // Rebuilds the rows, but only when their structure changes (another focus,
+  // goal or day, or a row added/removed), so the per-second refresh never
+  // wipes what's being typed. Values are saved when a field loses focus or
+  // Enter is pressed; the Gain column updates live while typing.
+  function renderTotals(skill, p) {
+    const { rows } = todaysAdjust(skill);
+    const key = [skill.id, skill.goal.measure, dayKey(Date.now()), ...rows.map((r) => r.id)].join('|');
+    if (key === totalsKey) return;
+    totalsKey = key;
+    const unit = p.isTime ? 'min' : p.unit;
+    totalsRows.replaceChildren(
+      ...(rows.length
+        ? [el('div', { class: 'totals-row totals-head muted small' },
+          el('span', {}, 'Name'), el('span', {}, `Start (${unit})`), el('span', {}, `Now (${unit})`), el('span', {}, 'Gain'), el('span'))]
+        : [el('p', { class: 'muted small' }, 'No rows yet. Add one for each document or counter you track.')]),
+      ...rows.map((r) => {
+        const gain = el('span', { class: 'row-gain' });
+        const startIn = el('input', { type: 'number', step: 'any', value: r.start, 'aria-label': 'Starting total' });
+        const nowIn = el('input', { type: 'number', step: 'any', value: r.current, 'aria-label': 'Current total' });
+        const showGain = () => { gain.textContent = signed(p, toInternal(p.isTime, rowGain({ start: startIn.value, current: nowIn.value }))); };
+        const saveField = (field, value) => editRows((rs) => {
+          const row = rs.find((x) => x.id === r.id);
+          if (row) row[field] = value;
+        });
+        const nameIn = el('input', { value: r.label, placeholder: 'e.g. Essay draft', 'aria-label': 'Row name' });
+        nameIn.addEventListener('change', () => saveField('label', nameIn.value));
+        for (const [field, input] of [['start', startIn], ['current', nowIn]]) {
+          input.addEventListener('input', showGain);
+          input.addEventListener('change', () => saveField(field, Number(input.value) || 0));
+        }
+        // Enter leaves the field, which fires 'change' and saves it.
+        for (const input of [nameIn, startIn, nowIn]) {
+          input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+        }
+        showGain();
+        return el('div', { class: 'totals-row' },
+          nameIn, startIn, nowIn, gain,
+          el('button', {
+            type: 'button', class: 'ghost icon', title: 'Remove row',
+            onclick: () => editRows((rs) => {
+              const i = rs.findIndex((x) => x.id === r.id);
+              if (i >= 0) rs.splice(i, 1);
+            }),
+          }, '✕'));
+      }),
+    );
+  }
+
+  // The two ways to adjust, shown one at a time. Both keep counting whichever
+  // is visible; the choice is remembered per focus (skill.goalAdjustMode).
+  const amountPane = el('div', { class: 'adjust-pane' },
     el('div', { class: 'row adjust-row' },
       adjAmount, adjUnit,
       el('button', { type: 'button', class: 'chip', onclick: () => applyDelta(1) }, '+ Add'),
       el('button', { type: 'button', class: 'chip', onclick: () => applyDelta(-1) }, '− Remove')),
     el('div', { class: 'muted small' }, 'Or set your average rate over the whole window so far:'),
-    el('div', { class: 'row adjust-row' }, rateInput, rateUnit, rateBtn, ratePreview),
+    el('div', { class: 'row adjust-row' }, rateInput, rateUnit, rateBtn, ratePreview));
+  const totalsPane = el('div', { class: 'adjust-pane' },
+    el('p', { class: 'muted small' },
+      'Type the current total from wherever you track it (e.g. a document\'s character count). Each row adds Now − Start to today\'s progress. Add a row per document.'),
+    totalsRows,
+    el('div', { class: 'row' },
+      el('button', { type: 'button', class: 'chip', onclick: addTotalsRow }, '+ Add row'),
+      el('span', { class: 'grow' }),
+      totalsSum));
+  const modeToggle = el('div', { class: 'segmented adjust-mode', role: 'group', 'aria-label': 'Adjustment method' },
+    ...[['amount', 'Add / remove'], ['totals', 'Running totals']].map(([mode, label]) => el('button', {
+      type: 'button',
+      dataset: { mode },
+      onclick: () => { const { skill } = current(); if (skill) updateSkill(skill.id, { goalAdjustMode: mode }); },
+    }, label)));
+
+  // A <details> element is collapsed until its <summary> is clicked.
+  const adjustBox = el('details', { class: 'pace-adjust' },
+    el('summary', {}, '✎ Adjust progress'),
+    el('p', { class: 'muted small' },
+      'Correct today\'s progress by hand, e.g. for work done away from the timer. This only changes the goal display; your XP, Momentum and currency are not affected.'),
+    modeToggle,
+    amountPane,
+    totalsPane,
     adjNoteRow);
 
   const goalBox = el('div', { class: 'pace-goal' },
@@ -256,6 +377,15 @@ export function initGoalCard() {
     rateBtn.disabled = !p.elapsed;
     adjNoteRow.hidden = !p.adjust;
     adjNote.textContent = `Includes ${p.adjust > 0 ? '+' : '−'}${amt(Math.abs(p.adjust))} adjusted by hand today.`;
+    const mode = skill.goalAdjustMode ?? 'amount';
+    amountPane.hidden = mode !== 'amount';
+    totalsPane.hidden = mode !== 'totals';
+    for (const btn of modeToggle.children) btn.setAttribute('aria-pressed', String(btn.dataset.mode === mode));
+    renderTotals(skill, p);
+    // Rate for the rows combined, over the window so far.
+    totalsSum.textContent = todaysAdjust(skill).rows.length
+      ? `Rows: ${signed(p, p.rowsTotal)}${p.elapsed >= 60_000 ? ` · ${rate(p.rowsTotal, p.elapsed)} over the window` : ''}`
+      : '';
 
     // The text depends on whether we're before, during or after the window.
     if (p.phase === 'before') {
