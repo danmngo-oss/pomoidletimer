@@ -48,6 +48,7 @@ export function makeSkill({ name, icon = '✦', color, category = 'mental', metr
     // Metrics keep their id if they already have one (a goal may point at it).
     metrics: metrics.map((m) => ({ id: m.id ?? uid(), label: m.label, unit: m.unit, perPoint: m.perPoint })),
     goal,                 // { measure: 'time' | metricId, target, start: 'HH:MM', end: 'HH:MM' } or null
+    goalAdjust: null,     // today's manual goal correction, see goals.js
     pos: null,
     theme: null,          // reserved for future customization/themes
     createdAt: Date.now(),

@@ -407,3 +407,13 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .pace-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s; }
 .pace-marker { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--text); transform: translateX(-1px); }
 .pace-marker[hidden] { display: none; }
+
+/* ---- Manual goal adjustments ---- */
+.pace-adjust { font-size: .9rem; }
+.pace-adjust summary { cursor: pointer; color: var(--muted); font-size: .85rem; width: fit-content; }
+.pace-adjust summary:hover { color: var(--text); }
+.pace-adjust[open] { display: flex; flex-direction: column; gap: 6px; }
+.pace-adjust p { margin: 0; }
+.pace-adjust [hidden] { display: none; }
+.adjust-row { gap: 6px; }
+.adjust-row input { width: 90px; padding: 4px 8px; }

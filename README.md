@@ -31,6 +31,13 @@ The **pace card** under "Working on" shows the selected focus's last session as 
 
 Give a focus a **daily goal** in its editor: focus time (hours) or one of its metrics, plus a time window. For example, *3h of focus time from 6:00 to 14:05*. The card then compares what you've done against an even pace through that window. For example, at 10:21 with 1h 23m done it shows `1h 23m / 4h 21m ▼ 13m behind`, along with your pace vs. the pace you need and where you're on track to finish. Time goals include the session currently on the timer.
 
+**Adjust progress** (under the goal) lets you correct today's progress by hand, for example for work done away from the timer:
+
+- **+ Add / − Remove** an amount (minutes for time goals, the metric's unit otherwise). Progress can't go below zero.
+- **Set from rate:** enter your average rate over the whole window so far (min/hr for time goals, unit/min for metrics). Today's progress becomes that rate × the time elapsed in the window.
+
+Adjustments only change the goal display. They never affect XP, Momentum, currency, productivity or the session log. They reset at midnight or when you change what the goal measures, and **Reset** clears them early.
+
 ### Breaks
 
 Click the **You** node on the Focus Map to take a break. Pick a preset (take a walk, drink water, answer texts…): ones with minutes count down, and open-ended ones count up like a stopwatch.
