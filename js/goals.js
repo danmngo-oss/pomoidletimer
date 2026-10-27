@@ -46,9 +46,10 @@ const fmtAmount = (p, v) => (p.isTime ? fmtDuration(v) : `${fmtNum(v)} ${p.unit}
 // Stored on the focus as goalAdjust = { day, measure, amount, rows }:
 //   amount — a signed correction from "Add / remove" or "Set from rate"
 //            (ms for time goals, metric units otherwise)
-//   rows   — "Running totals": [{ id, label, start, current }], one per
-//            document/counter, in the units the player types (minutes for
-//            time goals). Each row adds current − start to today's progress.
+//   rows   — "Running totals": [{ id, label, start, current, updatedAt }],
+//            one per document/counter, in the units the player types
+//            (minutes for time goals). `current` is the last total entered;
+//            each row adds current − start to today's progress.
 // It only counts for the same goal measure, and only on the day it was made,
 // except that rows carry over to the next day (see todaysAdjust).
 
@@ -233,14 +234,26 @@ export function initGoalCard() {
   // Signed amount for display, e.g. "+1,220 chars" or "−5m".
   const signed = (p, v) => `${v < 0 ? '−' : '+'}${fmtAmount(p, Math.abs(v))}`;
 
+  // New rows begin from a starting total the player gives once: 0 for a new
+  // document, or its current count if it already has work in it, so only
+  // work done from now on counts.
+  const newRowName = el('input', { placeholder: 'e.g. Essay draft', 'aria-label': 'New row name' });
+  const newRowStart = el('input', { type: 'number', step: 'any', placeholder: '0', 'aria-label': 'Starting total' });
   function addTotalsRow() {
-    editRows((rows) => rows.push({ id: uid(), label: '', start: 0, current: 0 }));
+    const start = Number(newRowStart.value) || 0;
+    editRows((rows) => rows.push({ id: uid(), label: newRowName.value.trim(), start, current: start, updatedAt: Date.now() }));
+    newRowName.value = '';
+    newRowStart.value = '';
+  }
+  for (const input of [newRowName, newRowStart]) {
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTotalsRow(); });
   }
 
   // Rebuilds the rows, but only when their structure changes (another focus,
   // goal or day, or a row added/removed), so the per-second refresh never
-  // wipes what's being typed. Values are saved when a field loses focus or
-  // Enter is pressed; the Gain column updates live while typing.
+  // wipes what's being typed. Each row's box shows its last saved total; the
+  // player overwrites it, and it's saved when the box loses focus or Enter is
+  // pressed. The "today" gain updates live while typing.
   function renderTotals(skill, p) {
     const { rows } = todaysAdjust(skill);
     const key = [skill.id, skill.goal.measure, dayKey(Date.now()), ...rows.map((r) => r.id)].join('|');
@@ -250,30 +263,34 @@ export function initGoalCard() {
     totalsRows.replaceChildren(
       ...(rows.length
         ? [el('div', { class: 'totals-row totals-head muted small' },
-          el('span', {}, 'Name'), el('span', {}, `Start (${unit})`), el('span', {}, `Now (${unit})`), el('span', {}, 'Gain'), el('span'))]
+          el('span', {}, 'Name'), el('span', {}, `Total (${unit})`), el('span', {}, 'Today'), el('span'))]
         : [el('p', { class: 'muted small' }, 'No rows yet. Add one for each document or counter you track.')]),
       ...rows.map((r) => {
         const gain = el('span', { class: 'row-gain' });
-        const startIn = el('input', { type: 'number', step: 'any', value: r.start, 'aria-label': 'Starting total' });
-        const nowIn = el('input', { type: 'number', step: 'any', value: r.current, 'aria-label': 'Current total' });
-        const showGain = () => { gain.textContent = signed(p, toInternal(p.isTime, rowGain({ start: startIn.value, current: nowIn.value }))); };
-        const saveField = (field, value) => editRows((rs) => {
+        const totalIn = el('input', { type: 'number', step: 'any', value: r.current, 'aria-label': `Latest total for ${r.label || 'this row'}` });
+        // "Last updated 10:42 AM" as a tooltip on the total box.
+        const showUpdated = (t) => { totalIn.title = t ? `Last updated ${clockFmt.format(t)}` : ''; };
+        const showGain = () => { gain.textContent = `${signed(p, toInternal(p.isTime, rowGain({ start: r.start, current: totalIn.value })))} today`; };
+        const saveRow = (patch) => editRows((rs) => {
           const row = rs.find((x) => x.id === r.id);
-          if (row) row[field] = value;
+          if (row) Object.assign(row, patch);
         });
-        const nameIn = el('input', { value: r.label, placeholder: 'e.g. Essay draft', 'aria-label': 'Row name' });
-        nameIn.addEventListener('change', () => saveField('label', nameIn.value));
-        for (const [field, input] of [['start', startIn], ['current', nowIn]]) {
-          input.addEventListener('input', showGain);
-          input.addEventListener('change', () => saveField(field, Number(input.value) || 0));
-        }
-        // Enter leaves the field, which fires 'change' and saves it.
-        for (const input of [nameIn, startIn, nowIn]) {
+        const nameIn = el('input', { value: r.label, placeholder: 'Untitled', 'aria-label': 'Row name' });
+        nameIn.addEventListener('change', () => saveRow({ label: nameIn.value }));
+        totalIn.addEventListener('input', showGain);
+        totalIn.addEventListener('change', () => {
+          const now = Date.now();
+          saveRow({ current: Number(totalIn.value) || 0, updatedAt: now });
+          showUpdated(now);
+        });
+        // Enter leaves the box, which fires 'change' and saves it.
+        for (const input of [nameIn, totalIn]) {
           input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
         }
         showGain();
+        showUpdated(r.updatedAt);
         return el('div', { class: 'totals-row' },
-          nameIn, startIn, nowIn, gain,
+          nameIn, totalIn, gain,
           el('button', {
             type: 'button', class: 'ghost icon', title: 'Remove row',
             onclick: () => editRows((rs) => {
@@ -296,12 +313,13 @@ export function initGoalCard() {
     el('div', { class: 'row adjust-row' }, rateInput, rateUnit, rateBtn, ratePreview));
   const totalsPane = el('div', { class: 'adjust-pane' },
     el('p', { class: 'muted small' },
-      'Type the current total from wherever you track it (e.g. a document\'s character count). Each row adds Now − Start to today\'s progress. Add a row per document.'),
+      'Each row shows your last total. When it changes, type the new total (e.g. your document\'s character count) and the difference counts toward today\'s progress. Add a row per document.'),
     totalsRows,
-    el('div', { class: 'row' },
-      el('button', { type: 'button', class: 'chip', onclick: addTotalsRow }, '+ Add row'),
-      el('span', { class: 'grow' }),
-      totalsSum));
+    el('div', { class: 'totals-add' },
+      newRowName, newRowStart,
+      el('button', { type: 'button', class: 'chip', onclick: addTotalsRow }, '+ Add row')),
+    el('div', { class: 'muted small' }, 'Starting total: 0 for a new document, or its current count if it already has work in it.'),
+    totalsSum);
   const modeToggle = el('div', { class: 'segmented adjust-mode', role: 'group', 'aria-label': 'Adjustment method' },
     ...[['amount', 'Add / remove'], ['totals', 'Running totals']].map(([mode, label]) => el('button', {
       type: 'button',
