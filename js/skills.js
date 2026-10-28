@@ -1,15 +1,19 @@
 // ============================================================================
-// skills.js — Focus ("skill" in code) data model, CRUD, and the add/edit dialog.
+// skills.js — unit ("skill" in code) data model, CRUD, and the add/edit dialog.
 // (CRUD = Create, Read, Update, Delete: the basic operations on a list.)
 //
-// A focus is one node on the Focus Map: something you work on (Note-taking,
-// Exercise…). It has a category, the metrics you report after each session,
-// an optional daily goal, a level/XP, and its own idle currency.
+// A unit is one slime in the city. It stands for something you work on
+// (Note-taking, Exercise…): you log focus sessions for it, which level it up.
+// It has stats (INT/STR/DEX, or LIFE; see stats.js) that decide what it
+// produces, the metrics you report after each session, and a place in the
+// city: either a tile of its own or a building it works in.
 // ============================================================================
 import { store } from './state.js';
 import { $, el, toast } from './ui.js';
 import { uid } from './format.js';
-import { CATEGORIES, CATEGORY_IDS } from './categories.js';
+import { STATS, STAT_IDS } from './stats.js';
+import { hybridShare } from './economy.js';
+import { nearestFreeTile } from './grid.js';
 
 // Ready-made metrics offered in the editor's "Add metric from preset…" list.
 // perPoint = how much of the unit makes 1 point (100 chars = 1 point).
@@ -24,84 +28,58 @@ export const METRIC_PRESETS = [
   { label: 'Chores done', unit: 'tasks', perPoint: 1 },
 ];
 
-// Default node colours, handed out in turn to new foci.
+// Default unit colours, handed out in turn to new units.
 const PALETTE = ['#7c9cff', '#5fd3a4', '#ffb86b', '#ff7aa8', '#c792ea', '#62d6e8', '#f7d154'];
 
-// Map layout space (matches the SVG viewBox in skillMap.js).
-export const MAP = { w: 1000, h: 600, hub: { x: 500, y: 300 } };
-
-// Builds a new focus object with every field filled in. This is the full
-// list of what a focus stores.
-export function makeSkill({ name, icon = '✦', color, category = 'mental', metrics = [], goal = null }) {
+// Builds a new unit object with every field filled in. This is the full
+// list of what a unit stores.
+export function makeSkill({ name, icon = '✦', color, stats = ['int'], metrics = [] }) {
   return {
     id: uid(),
     name,
-    icon,
+    icon,                 // shown in lists and the session log
     color: color ?? PALETTE[store.state.skills.length % PALETTE.length],
-    category,             // key of CATEGORIES
+    stats,                // e.g. ['int'], ['str', 'dex'] or ['life']
     level: 1,
     xp: 0,
-    currency: 0,          // this focus's own idle currency
     totalFocusMs: 0,
     sessionCount: 0,
     avgProductivity: 0,   // output points per focused hour (EMA)
-    // Metrics keep their id if they already have one (a goal may point at it).
     metrics: metrics.map((m) => ({ id: m.id ?? uid(), label: m.label, unit: m.unit, perPoint: m.perPoint })),
-    goal,                 // { measure: 'time' | metricId, target, start: 'HH:MM', end: 'HH:MM' } or null
-    goalAdjust: null,     // today's manual goal correction, see goals.js
-    goalAdjustMode: 'amount', // which adjust method the pace card shows: 'amount' | 'totals'
-    pos: null,
-    theme: null,          // reserved for future customization/themes
+    buildingId: null,     // the building it works in, or null
+    tile: null,           // { c, r } where it stands when not in a building
+    theme: null,          // reserved for future customization (slime art)
     createdAt: Date.now(),
   };
 }
 
 export const getSkill = (id) => store.state.skills.find((s) => s.id === id);
 
-// First open slot on concentric rings around the hub.
-// Tries 8 spots on an inner ring, then 12 on an outer ring, then 6 close in,
-// and takes the first one that's on the map and at least 120 units from
-// every existing node. The rings are stretched sideways (x * 1.5) because
-// the map is wider than it is tall. If all are taken, pick a random spot.
-function nextFreePosition() {
-  const taken = store.state.skills.map((s) => s.pos).filter(Boolean);
-  for (const [radius, slots] of [[200, 8], [270, 12], [130, 6]]) {
-    for (let i = 0; i < slots; i++) {
-      // Angle in radians, starting from the top (12 o'clock).
-      const angle = (i / slots) * Math.PI * 2 - Math.PI / 2;
-      const p = {
-        x: Math.round(MAP.hub.x + Math.cos(angle) * radius * 1.5),
-        y: Math.round(MAP.hub.y + Math.sin(angle) * radius),
-      };
-      const inBounds = p.x > 60 && p.x < MAP.w - 60 && p.y > 70 && p.y < MAP.h - 70;
-      if (inBounds && taken.every((t) => Math.hypot(t.x - p.x, t.y - p.y) > 120)) return p;
-    }
-  }
-  return { x: 80 + Math.random() * (MAP.w - 160), y: 80 + Math.random() * (MAP.h - 160) };
-}
-
-// Creates a focus, places it on the map, and selects it if nothing else is.
+// Creates a unit, stands it on the free tile nearest the Keep, and selects it
+// if nothing else is.
 export function addSkill(data) {
   const skill = makeSkill(data);
-  skill.pos = nextFreePosition();
-  store.update(['skills', 'selection'], (s) => {
+  skill.tile = nearestFreeTile(store.state);
+  if (!skill.tile) toast('Your city is full, so the new unit is waiting off-map. Free up a tile to see it.');
+  store.update(['skills', 'selection', 'city'], (s) => {
     s.skills.push(skill);
     s.selectedSkillId ??= skill.id;
   });
   return skill;
 }
 
-// Copies the fields in `patch` onto the focus with this id.
+// Copies the fields in `patch` onto the unit with this id.
 export function updateSkill(id, patch) {
-  store.update('skills', (s) => Object.assign(s.skills.find((sk) => sk.id === id), patch));
+  store.update(['skills', 'city'], (s) => Object.assign(s.skills.find((sk) => sk.id === id), patch));
 }
 
-// Removes a focus. If it was selected, select the first remaining one.
-// (Its past sessions stay in the history log.)
+// Removes a unit. If it was selected, select the first remaining one, and
+// drop it from any goal that listed it. (Its past sessions stay in the log.)
 export function deleteSkill(id) {
-  store.update(['skills', 'selection', 'currency'], (s) => {
+  store.update(['skills', 'selection', 'currency', 'city', 'goals'], (s) => {
     s.skills = s.skills.filter((sk) => sk.id !== id);
     if (s.selectedSkillId === id) s.selectedSkillId = s.skills[0]?.id ?? null;
+    for (const g of s.goals) if (g.units) g.units = g.units.filter((u) => u !== id);
   });
 }
 
@@ -109,16 +87,17 @@ export function selectSkill(id) {
   store.update('selection', (s) => { s.selectedSkillId = id; });
 }
 
-// The example foci a new player starts with (one or more per category).
+// The example units a new player starts with: one of each kind, including a
+// hybrid (typing notes is both mind and precision work).
 export function seedStarterSkills() {
-  addSkill({ name: 'Note-taking', icon: '✎', category: 'mental', metrics: [METRIC_PRESETS[0]] });
-  addSkill({ name: 'Lectures', icon: '🎓', category: 'mental', metrics: [METRIC_PRESETS[1]] });
-  addSkill({ name: 'Exercise', icon: '🏃', category: 'physical', metrics: [METRIC_PRESETS[6]] });
-  addSkill({ name: 'Chores', icon: '🧺', category: 'life', metrics: [METRIC_PRESETS[7]] });
+  addSkill({ name: 'Note-taking', icon: '✎', stats: ['int', 'dex'], metrics: [METRIC_PRESETS[0]] });
+  addSkill({ name: 'Lectures', icon: '🎓', stats: ['int'], metrics: [METRIC_PRESETS[1]] });
+  addSkill({ name: 'Exercise', icon: '🏃', stats: ['str'], metrics: [METRIC_PRESETS[6]] });
+  addSkill({ name: 'Chores', icon: '🧺', stats: ['life'], metrics: [METRIC_PRESETS[7]] });
 }
 
 // ---- Add / edit dialog ----------------------------------------------------
-// Opens the editor for an existing focus (skillId) or a new one (null).
+// Opens the editor for an existing unit (skillId) or a new one (null).
 // `onSaved(id)` is called after saving, e.g. so the caller can select it.
 //
 // Like the break preset manager, the dialog edits a `draft` copy; nothing is
@@ -128,49 +107,37 @@ export function openSkillEditor(skillId = null, onSaved) {
   const dlg = $('skill-dialog');
   const existing = skillId ? getSkill(skillId) : null;
   // structuredClone makes a deep copy, so editing the draft's metrics array
-  // can't accidentally change the real focus before Save is pressed.
+  // can't accidentally change the real unit before Save is pressed.
   const draft = existing
-    ? structuredClone({
-      name: existing.name, icon: existing.icon, color: existing.color,
-      category: existing.category ?? 'mental', metrics: existing.metrics, goal: existing.goal,
-    })
-    : { name: '', icon: '✦', color: PALETTE[store.state.skills.length % PALETTE.length], category: 'mental', metrics: [], goal: null };
-  // The goal form always has values to show; measure '' means "no goal".
-  const goal = draft.goal ?? { measure: '', target: 3, start: '09:00', end: '17:00' };
+    ? structuredClone({ name: existing.name, icon: existing.icon, color: existing.color, stats: existing.stats, metrics: existing.metrics })
+    : { name: '', icon: '✦', color: PALETTE[store.state.skills.length % PALETTE.length], stats: ['int'], metrics: [] };
 
-  // -- Daily goal section --
-  // The "measure" dropdown lists Focus time plus each named metric, so it is
-  // rebuilt whenever the metrics change.
-  const goalMeasure = el('select', { 'aria-label': 'Goal measure', onchange: (e) => { goal.measure = e.target.value; renderGoal(); } });
-  const goalFields = el('div', { class: 'goal-fields' });
-  function renderGoal() {
-    const named = draft.metrics.filter((m) => m.label.trim());
-    goalMeasure.replaceChildren(
-      el('option', { value: '' }, 'No daily goal'),
-      el('option', { value: 'time' }, 'Focus time'),
-      ...named.map((m) => el('option', { value: m.id }, `${m.label} (${m.unit || 'units'})`)),
-    );
-    // If the goal's metric was deleted, fall back to "no goal".
-    if (goal.measure && goal.measure !== 'time' && !named.some((m) => m.id === goal.measure)) goal.measure = '';
-    goalMeasure.value = goal.measure;
-    goalFields.hidden = !goal.measure;
-    if (!goal.measure) return goalFields.replaceChildren();
-    // Time goals are entered in hours; metric goals in the metric's unit.
-    const unit = goal.measure === 'time' ? 'hours' : named.find((m) => m.id === goal.measure).unit || 'units';
-    goalFields.replaceChildren(
-      el('label', { class: 'field' }, 'Target',
-        el('div', { class: 'input-unit' },
-          el('input', { type: 'number', min: '0.01', step: 'any', required: true, value: goal.target, oninput: (e) => { goal.target = parseFloat(e.target.value); } }),
-          el('span', { class: 'unit' }, unit))),
-      el('label', { class: 'field' }, 'From', el('input', { type: 'time', required: true, value: goal.start, oninput: (e) => { goal.start = e.target.value; } })),
-      el('label', { class: 'field' }, 'Until', el('input', { type: 'time', required: true, value: goal.end, oninput: (e) => { goal.end = e.target.value; } })),
-    );
+  // -- Stats: any mix of INT/STR/DEX, or LIFE on its own --
+  const statPicker = el('div', { class: 'row stat-picker', role: 'group', 'aria-label': 'Stats' });
+  const statNote = el('p', { class: 'muted small' });
+  function renderStats() {
+    statPicker.replaceChildren(...STAT_IDS.map((id) => el('label', { class: 'cat-toggle', title: STATS[id].hint },
+      el('input', {
+        type: 'checkbox',
+        checked: draft.stats.includes(id),
+        onchange: (e) => {
+          if (id === 'life') draft.stats = e.target.checked ? ['life'] : [];
+          else draft.stats = e.target.checked ? [...draft.stats.filter((s) => s !== 'life'), id] : draft.stats.filter((s) => s !== id);
+          renderStats();
+        },
+      }),
+      el('span', {}, `${STATS[id].icon} ${STATS[id].label} · ${STATS[id].name}`))));
+    const n = draft.stats.length;
+    statNote.textContent = draft.stats.includes('life')
+      ? 'LIFE units don\'t produce currency. Each one buffs every other unit working in the same building.'
+      : n > 1
+        ? `Hybrid: each stat gets ${hybridShare(n).toFixed(2)}× of this unit's rate (${(hybridShare(n) * n).toFixed(1)}× in total).`
+        : n === 1 ? `Produces ${STATS[draft.stats[0]].label}, with a bonus when working in a ${STATS[draft.stats[0]].label} building.` : 'Pick at least one stat.';
   }
 
-  // -- Metrics section: one row per metric (name, unit, amount per point) --
+  // -- Metrics: one row per metric (name, unit, amount per point) --
   const metricRows = el('div', { class: 'metric-rows' });
   function renderMetrics() {
-    renderGoal();
     if (!draft.metrics.length) {
       metricRows.replaceChildren(el('p', { class: 'muted' }, 'No metrics yet. Sessions will earn time-based credit only.'));
       return;
@@ -178,8 +145,8 @@ export function openSkillEditor(skillId = null, onSaved) {
     metricRows.replaceChildren(
       el('div', { class: 'metric-row metric-head muted' }, el('span', {}, 'Metric'), el('span', {}, 'Unit'), el('span', {}, 'Amount = 1 pt'), el('span')),
       ...draft.metrics.map((m, i) => el('div', { class: 'metric-row' },
-        el('input', { value: m.label, placeholder: 'e.g. Characters typed', required: true, 'aria-label': 'Metric name', oninput: (e) => { m.label = e.target.value; renderGoal(); } }),
-        el('input', { value: m.unit, placeholder: 'chars', 'aria-label': 'Unit', oninput: (e) => { m.unit = e.target.value; renderGoal(); } }),
+        el('input', { value: m.label, placeholder: 'e.g. Characters typed', required: true, 'aria-label': 'Metric name', oninput: (e) => { m.label = e.target.value; } }),
+        el('input', { value: m.unit, placeholder: 'chars', 'aria-label': 'Unit', oninput: (e) => { m.unit = e.target.value; } }),
         el('input', { type: 'number', min: '0.01', step: 'any', value: m.perPoint, required: true, 'aria-label': 'Amount per point', oninput: (e) => { m.perPoint = parseFloat(e.target.value) || 1; } }),
         el('button', { type: 'button', class: 'ghost icon', title: 'Remove metric', onclick: () => { draft.metrics.splice(i, 1); renderMetrics(); } }, '✕'))),
     );
@@ -197,38 +164,26 @@ export function openSkillEditor(skillId = null, onSaved) {
     renderMetrics();
   });
 
-  // Mental / Physical / Life balance, as radio buttons styled like tabs.
-  const categoryPicker = el('div', { class: 'segmented category-picker', role: 'radiogroup', 'aria-label': 'Category' },
-    ...CATEGORY_IDS.map((c) => el('label', { title: CATEGORIES[c].hint },
-      el('input', { type: 'radio', name: 'focus-category', value: c, checked: draft.category === c, onchange: () => { draft.category = c; } }),
-      el('span', {}, `${CATEGORIES[c].icon} ${CATEGORIES[c].label}`))));
-
   const form = el('form', {
     class: 'dialog-body',
     onsubmit: (e) => {
       e.preventDefault();
       const name = draft.name.trim();
       if (!name) return;
-      // "HH:MM" strings compare correctly as text ("06:00" < "14:05").
-      if (goal.measure && goal.end <= goal.start) {
-        toast('The goal\'s "Until" time must be after its "From" time.', { kind: 'error' });
+      if (!draft.stats.length) {
+        toast('Pick at least one stat for this unit.', { kind: 'error' });
         return;
       }
-      const data = {
-        ...draft,
-        name,
-        icon: draft.icon.trim() || '✦',
-        goal: goal.measure ? { measure: goal.measure, target: goal.target, start: goal.start, end: goal.end } : null,
-      };
+      const data = { ...draft, name, icon: draft.icon.trim() || '✦' };
       let id = skillId;
       if (existing) updateSkill(skillId, data);
       else id = addSkill(data).id;
       dlg.close();
-      toast(existing ? `Updated ${name}` : `Added ${name} to your Focus Map`);
+      toast(existing ? `Updated ${name}` : `${name} joined your city`);
       onSaved?.(id);
     },
   },
-    el('h3', {}, existing ? 'Edit focus' : 'New focus'),
+    el('h3', {}, existing ? 'Edit unit' : 'New unit'),
     el('div', { class: 'row' },
       el('label', { class: 'field grow' }, 'Name',
         el('input', { value: draft.name, required: true, maxLength: 40, placeholder: 'e.g. Spanish', autofocus: true, oninput: (e) => { draft.name = e.target.value; } })),
@@ -236,32 +191,29 @@ export function openSkillEditor(skillId = null, onSaved) {
         el('input', { value: draft.icon, maxLength: 4, oninput: (e) => { draft.icon = e.target.value; } })),
       el('label', { class: 'field color-field' }, 'Color',
         el('input', { type: 'color', value: draft.color, oninput: (e) => { draft.color = e.target.value; } }))),
-    el('div', { class: 'field' }, 'Category', categoryPicker),
+    el('div', { class: 'field' }, 'Stats', statPicker, statNote),
     el('h4', {}, 'Productivity metrics'),
-    el('p', { class: 'muted small' }, 'What will you report after each session? Each metric converts into points.'),
+    el('p', { class: 'muted small' }, 'What will you report after each session? Each metric converts into points. Hourly, daily and weekly targets live in the Goals panel.'),
     metricRows,
     el('div', { class: 'row' },
       presetSelect,
       el('button', { type: 'button', class: 'ghost', onclick: () => { draft.metrics.push({ id: uid(), label: '', unit: '', perPoint: 1 }); renderMetrics(); } }, '+ Custom metric')),
-    el('h4', {}, 'Daily goal'),
-    el('p', { class: 'muted small' }, 'e.g. 3 hours of focus time between 6:00 and 14:05. The Focus Session panel then shows whether you\'re ahead of or behind that pace.'),
-    goalMeasure,
-    goalFields,
     el('div', { class: 'row dialog-actions' },
-      // The Delete button only exists when editing an existing focus.
+      // The Delete button only exists when editing an existing unit.
       existing && el('button', {
         type: 'button', class: 'ghost danger',
         onclick: () => {
-          if (!confirm(`Delete ${existing.name}? Its level and currency will be lost.`)) return;
+          if (!confirm(`Delete ${existing.name}? Its level will be lost.`)) return;
           deleteSkill(skillId);
           dlg.close();
         },
       }, 'Delete'),
       el('span', { class: 'grow' }),
       el('button', { type: 'button', class: 'ghost', onclick: () => dlg.close() }, 'Cancel'),
-      el('button', { type: 'submit', class: 'primary' }, existing ? 'Save' : 'Add focus')),
+      el('button', { type: 'submit', class: 'primary' }, existing ? 'Save' : 'Add unit')),
   );
 
+  renderStats();
   renderMetrics();
   dlg.replaceChildren(form);
   dlg.showModal();

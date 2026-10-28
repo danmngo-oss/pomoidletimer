@@ -1,8 +1,8 @@
 // ============================================================================
-// breaks.js — breaks, started by clicking the "You" hub. They never cost
+// breaks.js — breaks, started by clicking the Keep on the city map. They never cost
 // anything: idle generation keeps running, and any focus session in progress
-// just pauses. A finished break boosts idle output for foci in the break's
-// categories; breaks in the sweet spot (5-10 min) earn the longest boost.
+// just pauses. A finished break boosts output for the break's stats (its
+// "categories": INT, STR, DEX, or LIFE, which doubles Life units' buffs); breaks in the sweet spot (5-10 min) earn the longest boost.
 //
 // A break's life:
 //   startBreak()  — pauses the focus timer and stores state.activeBreak
@@ -12,7 +12,7 @@
 //   summary close — re-computes the bonus with the steps/rating the user
 //                   entered and adjusts the bonus by the difference
 //
-// Bonuses ("buffs") are stored as state.buffs[category] = the moment the
+// Bonuses ("buffs") are stored as state.buffs[stat] = the moment the
 // bonus ends. idle.js and economy.js read that to double the output.
 //
 // This file also builds the break picker and the preset manager dialogs.
@@ -21,14 +21,14 @@ import { store } from './state.js';
 import { $, el, chime, notify, primeAudio, requestNotifications, toast } from './ui.js';
 import { fmtClock, fmtDuration, uid } from './format.js';
 import { BREAK_BUFF_MULT, BREAK_SWEET_SPOT_MIN, BUFF_CAP_MS, MAX_HISTORY, breakBonus } from './economy.js';
-import { CATEGORIES, CATEGORY_IDS, categoryIcons } from './categories.js';
+import { STATS, STAT_IDS, statIcons } from './stats.js';
 import { focusElapsed, pauseFocusTimer } from './timer.js';
 
 // [5, 10] unpacked into two constants, and "5–10 min" for messages.
 const [SWEET_LO, SWEET_HI] = BREAK_SWEET_SPOT_MIN;
 const SWEET_TEXT = `${SWEET_LO}–${SWEET_HI} min`;
 
-// Other modules can ask to be called on every break tick (the map's hub uses
+// Other modules can ask to be called on every break tick (the map's Keep uses
 // this to show the countdown). A Set is a list that ignores duplicates.
 const tickListeners = new Set();
 export const onBreakTick = (fn) => tickListeners.add(fn);
@@ -38,7 +38,7 @@ const presetLength = (p) => (p.durationMs ? fmtDuration(p.durationMs) : 'Open-en
 
 // e.g. "🧠💪 ×2 for 30m", or "no bonus".
 const bonusText = (categories, ms) =>
-  (categories.length && ms > 0 ? `${categoryIcons(categories)} ×${BREAK_BUFF_MULT} for ${fmtDuration(ms)}` : 'no bonus');
+  (categories.length && ms > 0 ? `${statIcons(categories)} ×${BREAK_BUFF_MULT} for ${fmtDuration(ms)}` : 'no bonus');
 
 // A short hint about where a break length sits on the bonus curve.
 function sweetSpotNote(ms) {
@@ -143,14 +143,14 @@ function openBreakSummary(b, record, finished) {
   function updatePreview() {
     const { ms } = compute();
     if (!record.categories.length) {
-      preview.replaceChildren(el('p', { class: 'muted' }, 'This break has no categories, so it doesn\'t boost any foci. You can add some in Manage presets.'));
+      preview.replaceChildren(el('p', { class: 'muted' }, 'This break has no stats, so it doesn\'t boost anything. You can add some in Manage presets.'));
     } else if (!ms) {
       preview.replaceChildren(el('p', { class: 'muted' }, `No bonus this time. Breaks of ${SWEET_TEXT} earn the most.`));
     } else {
-      // One line per category, e.g. "🧠 ×2  Mental idle output  for 45m".
+      // One line per stat, e.g. "🧠 ×2  INT output  for 45m".
       preview.replaceChildren(...record.categories.map((c) => el('div', { class: 'bonus-chip' },
-        el('strong', {}, `${CATEGORIES[c].icon} ×${BREAK_BUFF_MULT}`),
-        el('span', {}, `${CATEGORIES[c].label} idle output`),
+        el('strong', {}, `${STATS[c].icon} ×${BREAK_BUFF_MULT}`),
+        el('span', {}, c === 'life' ? 'LIFE buffs' : `${STATS[c].label} output`),
         el('span', { class: 'muted' }, `for ${fmtDuration(ms)}`))));
     }
   }
@@ -221,7 +221,7 @@ export function openBreakPicker() {
     dlg.replaceChildren(el('div', { class: 'dialog-body' },
       el('h3', {}, current ? 'On a break' : 'Take a break'),
       el('p', { class: 'muted small' },
-        `Breaks never cost you anything, and your foci keep generating while you rest. A ${SWEET_TEXT} break earns the biggest bonus: ×${BREAK_BUFF_MULT} idle output for foci in the break's categories.`),
+        `Breaks never cost you anything, and your city keeps producing while you rest. A ${SWEET_TEXT} break earns the biggest bonus: ×${BREAK_BUFF_MULT} output for the break's stats (a LIFE break doubles Life buffs).`),
       current && el('div', { class: 'break-current' },
         el('span', { class: 'break-icon' }, current.icon),
         el('div', { class: 'grow' },
@@ -240,8 +240,8 @@ export function openBreakPicker() {
           el('span', { class: 'preset-icon' }, p.icon),
           el('span', { class: 'preset-name' }, p.name),
           el('span', { class: 'muted small' }, presetLength(p)),
-          el('span', { class: 'preset-cats', title: (p.categories ?? []).map((c) => CATEGORIES[c].label).join(' + ') || 'No categories' },
-            categoryIcons(p.categories) || '—'))))
+          el('span', { class: 'preset-cats', title: (p.categories ?? []).map((c) => STATS[c].label).join(' + ') || 'No categories' },
+            statIcons(p.categories) || '—'))))
         : el('p', { class: 'muted' }, 'No break presets yet. Add some with "Manage presets".'),
       el('div', { class: 'row dialog-actions' },
         el('button', { type: 'button', class: 'ghost', onclick: showManager }, 'Manage presets'),
@@ -283,12 +283,12 @@ export function openBreakPicker() {
             el('button', { type: 'button', class: 'ghost icon', title: 'Remove preset', onclick: () => { draft.splice(i, 1); renderRows(); } }, '✕')),
           // Line 2: category toggles (checkboxes styled as chips).
           el('div', { class: 'row preset-extra' },
-            ...CATEGORY_IDS.map((c) => el('label', { class: 'cat-toggle', title: CATEGORIES[c].hint },
+            ...STAT_IDS.map((c) => el('label', { class: 'cat-toggle', title: STATS[c].hint },
               el('input', {
                 type: 'checkbox', checked: p.categories.includes(c),
                 onchange: (e) => { p.categories = e.target.checked ? [...p.categories, c] : p.categories.filter((x) => x !== c); },
               }),
-              el('span', {}, `${CATEGORIES[c].icon} ${CATEGORIES[c].label}`)))),
+              el('span', {}, `${STATS[c].icon} ${STATS[c].label}`)))),
           // Line 3: optional measure, e.g. "steps", target 1000.
           el('div', { class: 'row preset-measure' },
             el('span', { class: 'muted small' }, 'Measure'),
@@ -311,7 +311,7 @@ export function openBreakPicker() {
             name: p.name.trim(),
             icon: p.icon.trim() || '☕',
             durationMs: Number(p.minutes) > 0 ? Math.round(Number(p.minutes) * 60_000) : null,
-            categories: CATEGORY_IDS.filter((c) => p.categories.includes(c)),
+            categories: STAT_IDS.filter((c) => p.categories.includes(c)),
             metric: p.metricUnit.trim() && Number(p.metricTarget) > 0 ? { unit: p.metricUnit.trim(), target: Number(p.metricTarget) } : null,
           }));
         });
@@ -321,10 +321,10 @@ export function openBreakPicker() {
     },
       el('h3', {}, 'Break presets'),
       el('p', { class: 'muted small' },
-        `Set minutes for a countdown, or leave them blank for an open-ended break that counts up. Categories decide which foci get the bonus (pick more than one for a hybrid break). An optional measure, like steps, adds up to +25% to the bonus when you hit its target.`),
+        `Set minutes for a countdown, or leave them blank for an open-ended break that counts up. Stats decide what gets the bonus (pick more than one for a hybrid break, like a walk for INT + STR). An optional measure, like steps, adds up to +25% to the bonus when you hit its target.`),
       rows,
       el('div', { class: 'row' },
-        el('button', { type: 'button', class: 'ghost', onclick: () => { draft.push({ id: uid(), name: '', icon: '☕', minutes: 5, categories: ['mental'], metricUnit: '', metricTarget: '' }); renderRows(); } }, '+ Add preset')),
+        el('button', { type: 'button', class: 'ghost', onclick: () => { draft.push({ id: uid(), name: '', icon: '☕', minutes: 5, categories: ['int'], metricUnit: '', metricTarget: '' }); renderRows(); } }, '+ Add preset')),
       el('div', { class: 'row dialog-actions' },
         el('span', { class: 'grow' }),
         el('button', { type: 'button', class: 'ghost', onclick: showPicker }, 'Back'),

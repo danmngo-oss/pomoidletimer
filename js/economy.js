@@ -1,25 +1,27 @@
 // ============================================================================
 // economy.js — all game-balance formulas live here so they can be tuned in
-// one place. Nothing in this file touches the page or the saved state
-// directly: every function takes numbers/objects in and returns results,
-// which makes the maths easy to read and experiment with.
+// one place. Nothing in this file touches the page or saves anything: every
+// function takes numbers/objects in and returns results, which makes the
+// maths easy to read and experiment with.
 //
 // The game's loop in one paragraph:
-//   You log a focus session -> your reported metrics become "points" ->
-//   points give the focus XP (levels) and you get ◆ Momentum -> each focus
-//   passively generates its own currency every second, faster at higher
-//   levels and higher productivity -> breaks temporarily double that output
-//   for foci in the break's categories.
+//   You log a focus session for a unit -> your reported metrics become
+//   "points" -> points give the unit XP (levels, and evolutions at set
+//   levels) and you get ◆ Momentum -> Momentum buys buildings -> every unit
+//   produces its stats' currencies (INT/STR/DEX) each second, more when it
+//   works in a building of its own type, next to LIFE units, under a
+//   higher-level Keep, or after a well-spent break. Currencies pay for
+//   building and Keep upgrades.
 // ============================================================================
 
-export const BASE_IDLE_RATE = 0.1;               // skill currency per second at level 1
+export const BASE_IDLE_RATE = 0.1;               // currency per second at level 1
 export const OFFLINE_CAP_MS = 8 * 60 * 60_000;   // max idle time credited while away
 export const XP_PER_POINT = 10;
 export const TIME_ONLY_POINTS_PER_MIN = 0.1;     // credit for a session logged without metrics
 export const MAX_HISTORY = 200;
 
-// Break bonuses: a finished break multiplies idle output for foci in its
-// categories until the bonus timer runs out.
+// Break bonuses: a finished break multiplies output for its stats until the
+// bonus timer runs out (for LIFE, it doubles Life units' buffs instead).
 export const BREAK_BUFF_MULT = 2;
 export const BREAK_SWEET_SPOT_MIN = [5, 10];       // ideal break length, minutes
 export const BREAK_BUFF_MAX_MS = 30 * 60_000;     // bonus length for an ideal break
@@ -31,6 +33,22 @@ const MIN_BONUS_MS = 30_000;
 // than the last: 100, 140, 196, 274…
 export function xpToNext(level) {
   return Math.round(100 * 1.4 ** (level - 1));
+}
+
+// Units evolve when they reach these levels. On the map each stage is drawn
+// a little bigger; real slime art can hook in here later.
+export const EVOLUTIONS = [
+  { level: 1, name: 'Droplet' },
+  { level: 5, name: 'Slime' },
+  { level: 10, name: 'Big Slime' },
+  { level: 20, name: 'Grand Slime' },
+];
+
+// The evolution a level has reached: { stage: 0-3, name }.
+export function evolution(level) {
+  let stage = 0;
+  EVOLUTIONS.forEach((e, i) => { if (level >= e.level) stage = i; });
+  return { stage, name: EVOLUTIONS[stage].name };
 }
 
 // Raw output points: each metric converts "amount" into points via perPoint
@@ -82,21 +100,13 @@ export function applyXp(skill, xp) {
   return gained;
 }
 
-// Passive generation: grows with level, boosted by recent productivity.
-// The boost uses a logarithm so it keeps growing but with diminishing
-// returns: avg 9 pts/hr -> x1.5, 99 pts/hr -> x2, 999 pts/hr -> x2.5.
+// A unit's base production per second, before stats, buildings and buffs.
+// Grows with level, boosted by recent productivity. The boost uses a
+// logarithm so it keeps growing but with diminishing returns:
+// avg 9 pts/hr -> x1.5, 99 pts/hr -> x2, 999 pts/hr -> x2.5.
 export function idleRate(skill) {
   const productivityBoost = 1 + Math.log10(1 + (skill.avgProductivity || 0)) * 0.5;
   return BASE_IDLE_RATE * skill.level * productivityBoost;
-}
-
-// Is there an unexpired break bonus for this category? `buffs` maps a
-// category ('mental', …) to the moment (epoch ms) its bonus ends.
-export const isBuffed = (buffs, category, now = Date.now()) => (buffs?.[category] ?? 0) > now;
-
-// Idle rate including any active break bonus for the skill's category.
-export function effectiveRate(skill, buffs, now = Date.now()) {
-  return idleRate(skill) * (isBuffed(buffs, skill.category, now) ? BREAK_BUFF_MULT : 1);
 }
 
 // Exponential moving average so recent sessions matter most.
@@ -104,6 +114,86 @@ export function effectiveRate(skill, buffs, now = Date.now()) {
 export function nextAvgProductivity(skill, productivity) {
   return skill.sessionCount <= 1 ? productivity : skill.avgProductivity * 0.7 + productivity * 0.3;
 }
+
+// ---- The city ------------------------------------------------------------
+
+// Hybrids: each extra stat adds 10% to a unit's total output, split evenly.
+// 1 stat -> 1x, 2 stats -> 0.55x each (1.1x total), 3 -> 0.4x each (1.2x).
+export const HYBRID_BONUS = 0.1;
+export const hybridShare = (n) => (n > 0 ? (1 + HYBRID_BONUS * (n - 1)) / n : 0);
+
+// Buildings. A unit working in a building of its own stat gets this bonus on
+// that stat's share: +25% at level 1, +5% per level after.
+export const matchBonus = (level) => 0.25 + 0.05 * (level - 1);
+// Worker slots: 3 at level 1, one more per level.
+export const buildingCapacity = (level) => 2 + level;
+// Buying a building costs ◆ Momentum, 60% more for each one you already own
+// (20, 32, 51, 82…).
+export const buildCost = (owned) => Math.round(20 * 1.6 ** owned);
+// Upgrading a building costs its own stat's currency, doubling each level
+// (50, 100, 200…).
+export const buildingUpgradeCost = (level) => Math.round(50 * 2 ** (level - 1));
+
+// Each Life unit adds this to every other unit in its building's output:
+// +10% at level 1, +1% per level after.
+export const lifeAura = (unit) => 0.1 + 0.01 * (unit.level - 1);
+
+// The Keep: +10% to all output per level above 1. Upgrading costs this much
+// of EACH of INT, STR and DEX (100, 200, 400…).
+export const KEEP_BONUS_PER_LEVEL = 0.1;
+export const keepMultiplier = (level) => 1 + KEEP_BONUS_PER_LEVEL * (level - 1);
+export const keepUpgradeCost = (level) => Math.round(100 * 2 ** (level - 1));
+
+// Is there an unexpired break bonus for this stat? `buffs` maps a stat
+// ('int', …, 'life') to the moment (epoch ms) its bonus ends.
+export const isBuffed = (buffs, stat, now = Date.now()) => (buffs?.[stat] ?? 0) > now;
+
+// Every unit's output per second at moment `now`, as a Map of
+// unit id -> { int, str, dex }. Life units map to zeros.
+//
+// For one stat of one unit:
+//   idleRate × hybridShare × Keep multiplier × (1 + Life buffs in its building)
+//     × (1 + matchBonus if the building is that stat's type)
+//     × 2 if that stat has a break bonus running
+export function cityRates(state, now = Date.now()) {
+  const keep = keepMultiplier(state.city.keepLevel);
+  const lifeBreak = isBuffed(state.buffs, 'life', now) ? BREAK_BUFF_MULT : 1;
+  // Total Life buff in each building.
+  const aura = new Map();
+  for (const u of state.skills) {
+    if (u.stats.includes('life') && u.buildingId) {
+      aura.set(u.buildingId, (aura.get(u.buildingId) ?? 0) + lifeAura(u) * lifeBreak);
+    }
+  }
+  const out = new Map();
+  for (const u of state.skills) {
+    const rates = { int: 0, str: 0, dex: 0 };
+    const stats = u.stats.filter((s) => s !== 'life');
+    if (stats.length) {
+      const building = u.buildingId ? state.buildings.find((b) => b.id === u.buildingId) : null;
+      const base = idleRate(u) * hybridShare(stats.length) * keep * (1 + (building ? aura.get(building.id) ?? 0 : 0));
+      for (const s of stats) {
+        const match = building && building.type === s ? 1 + matchBonus(building.level) : 1;
+        rates[s] = base * match * (isBuffed(state.buffs, s, now) ? BREAK_BUFF_MULT : 1);
+      }
+    }
+    out.set(u.id, rates);
+  }
+  return out;
+}
+
+// The whole city's output per second: { int, str, dex }.
+export function totalRates(state, now = Date.now()) {
+  const total = { int: 0, str: 0, dex: 0 };
+  for (const r of cityRates(state, now).values()) {
+    total.int += r.int;
+    total.str += r.str;
+    total.dex += r.dex;
+  }
+  return total;
+}
+
+// ---- Breaks --------------------------------------------------------------
 
 // 0..1 score for break length. Short breaks ramp up quadratically (1 min = 4%,
 // 2.5 min = 25%), the sweet spot scores 100%, and long breaks fall off

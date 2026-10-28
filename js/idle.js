@@ -1,6 +1,7 @@
 // ============================================================================
-// idle.js — the "idle" in idle game: every focus passively generates its own
-// currency, doubled while a break bonus is active for its category.
+// idle.js — the "idle" in idle game: every second, each unit adds its output
+// to the city's INT, STR and DEX currencies (see cityRates in economy.js for
+// how buildings, Life units, the Keep and break bonuses shape that output).
 //
 // Two things happen here:
 //   1. On page load, pay out what was earned while the page was closed
@@ -8,26 +9,32 @@
 //   2. Every second after that, pay out the last second's earnings.
 // ============================================================================
 import { store } from './state.js';
-import { BREAK_BUFF_MULT, idleRate, OFFLINE_CAP_MS } from './economy.js';
+import { OFFLINE_CAP_MS, totalRates } from './economy.js';
 import { fmtDuration, fmtNum } from './format.js';
+import { PRODUCING_STATS, STATS } from './stats.js';
 import { toast } from './ui.js';
 
-// Credits generation for the time span [from, to], applying a bonus only to
-// the part of the span before it expired (matters for offline progress).
+// Credits production for the time span [from, to] and returns the gains.
 //
-// Example: you were away 60 min and the Mental bonus ran out 20 min in.
-// buffedMs = 20 min, so a Mental focus earns 60 normal minutes plus 20 extra
-// minutes (the doubled part) = 80 minutes' worth of its base rate.
+// Rates change when a break bonus expires, so the span is cut at every
+// expiry that falls inside it and each piece is paid at the rates that were
+// really in effect then. Example: away 60 min, the INT bonus ended 20 min
+// in -> 20 min at the doubled INT rate, then 40 min at the normal rate.
 function generate(from, to) {
-  const gains = [];
+  const gains = { int: 0, str: 0, dex: 0 };
   store.update('currency', (s) => {
-    for (const skill of s.skills) {
-      const buffedMs = Math.max(0, Math.min(to, s.buffs[skill.category] ?? 0) - from);
+    const cuts = Object.values(s.buffs).filter((t) => t > from && t < to);
+    const points = [from, ...[...new Set(cuts)].sort((a, b) => a - b), to];
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      // Measure the rates in the middle of the piece, safely away from the
+      // exact moment a bonus switches off.
+      const rates = totalRates(s, (a + b) / 2);
       // Rates are per second and times are in ms, hence the / 1000.
-      const amount = (idleRate(skill) * (to - from + (BREAK_BUFF_MULT - 1) * buffedMs)) / 1000;
-      skill.currency += amount;
-      gains.push([skill, amount]);
+      for (const stat of PRODUCING_STATS) gains[stat] += (rates[stat] * (b - a)) / 1000;
     }
+    for (const stat of PRODUCING_STATS) s.currencies[stat] += gains[stat];
     s.lastSeen = to;
   });
   return gains;
@@ -40,8 +47,8 @@ export function initIdle() {
   const away = Math.min(now - store.state.lastSeen, OFFLINE_CAP_MS);
   if (away > 60_000 && store.state.skills.length) {
     const gains = generate(now - away, now);
-    const summary = gains.map(([s, amt]) => `${s.icon} +${fmtNum(amt)}`).join('  ');
-    toast(`Welcome back! While you were away (${fmtDuration(away)}): ${summary}`, { ms: 7000 });
+    const summary = PRODUCING_STATS.map((stat) => `${STATS[stat].icon} +${fmtNum(gains[stat])}`).join('  ');
+    toast(`Welcome back! While you were away (${fmtDuration(away)}) your city made ${summary}`, { ms: 7000 });
   }
 
   // The live tick. We measure the real time since the last tick instead of

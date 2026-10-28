@@ -10,20 +10,20 @@
 import { store } from './state.js';
 import { $, el, toast } from './ui.js';
 import { fmtDuration, fmtNum, uid } from './format.js';
-import { applyXp, MAX_HISTORY, nextAvgProductivity, scoreSession } from './economy.js';
+import { applyXp, evolution, MAX_HISTORY, nextAvgProductivity, scoreSession } from './economy.js';
 import { getSkill, openSkillEditor } from './skills.js';
 import { recordSessionTotals, sessionTotalsRows } from './goals.js';
 
 // Records a finished session and pays out its rewards.
 // `values` maps metric id -> the amount the user entered.
-// Returns the rewards and how many levels the focus gained (for the toasts).
+// Returns the rewards and how many levels the unit gained (for the toasts).
 export function logSession({ skill, values, focusMs, rating, note }) {
   const result = scoreSession({ skill, values, focusMs, rating });
   let levelsGained = 0;
   // One update covering three topics, so the map, HUD and session log all
   // redraw once afterwards.
   store.update(['skills', 'currency', 'sessions'], (s) => {
-    // Look the focus up in the live state rather than using `skill` directly,
+    // Look the unit up in the live state rather than using `skill` directly,
     // so we edit the object that actually gets saved.
     const sk = s.skills.find((x) => x.id === skill.id);
     levelsGained = applyXp(sk, result.xp);
@@ -31,8 +31,8 @@ export function logSession({ skill, values, focusMs, rating, note }) {
     sk.sessionCount += 1;
     if (!result.timeOnly) sk.avgProductivity = nextAvgProductivity(sk, result.productivity);
     s.momentum += result.momentum;
-    // The history entry copies the focus's name/icon/colour, so the log still
-    // reads correctly if the focus is later renamed or deleted.
+    // The history entry copies the unit's name/icon/colour, so the log still
+    // reads correctly if the unit is later renamed or deleted.
     s.sessions.unshift({
       id: uid(),
       at: Date.now(),
@@ -62,14 +62,14 @@ export function logSession({ skill, values, focusMs, rating, note }) {
 // skips it, so the time stays on the timer.
 export function openSessionModal({ focusMs, skillId, onLogged }) {
   const dlg = $('session-dialog');
-  // Default to the selected focus, else the first one, else none.
+  // Default to the selected unit, else the first one, else none.
   let skill = getSkill(skillId) ?? store.state.skills[0] ?? null;
   // The form's current inputs. These variables are shared by the event
   // handlers below (a "closure"), which is how the dialog remembers what's
   // been typed without storing it in the game state.
   const values = {};
-  // Metric id -> running-total entries [{ id, label, prev, total, isNew }],
-  // for a metric the player reports as totals (see totalsField below).
+  // Metric id -> { goalId, entries: [{ id, label, prev, total, isNew }] }, for
+  // a metric the player reports as running totals (see totalsField below).
   let totalsEntries = {};
   let rating = 3;
   let note = '';
@@ -84,12 +84,12 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
     if (skill) skillSelect.value = skill.id;
   }
 
-  // For a metric tracked with Running totals: instead of "how much did you
-  // do?", list each running-total row with its last total and let the player
-  // type the new totals. The session's output is the sum of the changes.
-  function totalsField(m, rows) {
+  // For a metric a goal tracks with Running totals: instead of "how much did
+  // you do?", list each running-total row with its last total and let the
+  // player type the new totals. The session's output is the sum of the changes.
+  function totalsField(m, { goalId, rows }) {
     const entries = rows.map((r) => ({ id: r.id, label: r.label, prev: Number(r.current) || 0, total: Number(r.current) || 0 }));
-    totalsEntries[m.id] = entries;
+    totalsEntries[m.id] = { goalId, entries };
     const list = el('div', { class: 'totals-rows' });
     const sessionGain = el('strong');
     const recompute = () => {
@@ -123,30 +123,30 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
       el('small', { class: 'muted' }, `The change since your last totals is this session's output. ${m.perPoint} ${m.unit} = 1 point.`));
   }
 
-  // One number input per metric of the chosen focus (or a totals list, see
-  // totalsField). Rebuilt when the focus dropdown changes, since each focus
-  // has different metrics.
+  // One number input per metric of the chosen unit (or a totals list, see
+  // totalsField). Rebuilt when the unit dropdown changes, since each unit has
+  // different metrics.
   function renderFields() {
     totalsEntries = {};
     submitBtn.disabled = !skill;
     if (!skill) {
-      // No foci exist yet: offer to create one right here, then continue.
+      // No units exist yet: offer to create one right here, then continue.
       fields.replaceChildren(
-        el('p', { class: 'muted' }, 'You need a focus to log this session to.'),
+        el('p', { class: 'muted' }, 'You need a unit to log this session to.'),
         el('button', {
           type: 'button',
           onclick: () => openSkillEditor(null, (id) => { skill = getSkill(id); renderSkillOptions(); renderFields(); }),
-        }, '+ Add a Focus'));
+        }, '+ Add a unit'));
       preview.replaceChildren();
       return;
     }
     fields.replaceChildren(
       ...skill.metrics.map((m) => {
-        const rows = sessionTotalsRows(skill, m.id);
-        return rows?.length ? totalsField(m, rows) : metricField(m);
+        const totals = sessionTotalsRows(skill, m);
+        return totals?.rows.length ? totalsField(m, totals) : metricField(m);
       }),
       ...(skill.metrics.length ? [] : [el('p', { class: 'muted' },
-        'This focus has no metrics yet, so you\'ll get time-based credit. Edit it on the Focus Map to add some.')]),
+        'This unit has no metrics yet, so you\'ll get time-based credit. Edit it from the city map to add some.')]),
     );
     updatePreview();
   }
@@ -189,19 +189,26 @@ export function openSessionModal({ focusMs, skillId, onLogged }) {
       if (!skill) return;
       const { result, levelsGained } = logSession({ skill, values, focusMs, rating, note: note.trim() });
       // Save the new running totals (skipping untouched rows and empty new ones).
-      for (const entries of Object.values(totalsEntries)) {
+      for (const { goalId, entries } of Object.values(totalsEntries)) {
         const changed = entries.filter((e) => (e.isNew ? e.total || e.label.trim() : e.total !== e.prev));
-        if (changed.length) recordSessionTotals(skill.id, changed.map((e) => ({ id: e.id, label: e.label.trim(), total: e.total })));
+        if (changed.length) recordSessionTotals(goalId, changed.map((e) => ({ id: e.id, label: e.label.trim(), total: e.total })));
       }
       dlg.close();
       toast(`${skill.icon} ${skill.name}: +${fmtNum(result.xp)} XP, +${fmtNum(result.momentum)} ◆`, { kind: 'success' });
-      if (levelsGained) toast(`${skill.name} reached level ${getSkill(skill.id).level}! Idle output increased.`, { kind: 'level' });
+      if (levelsGained) {
+        const level = getSkill(skill.id).level;
+        toast(`${skill.name} reached level ${level}! Its output increased.`, { kind: 'level' });
+        // Crossing an evolution level (see EVOLUTIONS in economy.js).
+        const before = evolution(level - levelsGained);
+        const after = evolution(level);
+        if (after.stage > before.stage) toast(`✨ ${skill.name} evolved: ${before.name} → ${after.name}!`, { kind: 'level', ms: 6000 });
+      }
       onLogged?.();
     },
   },
     el('h3', {}, 'Session complete'),
     el('p', { class: 'muted' }, `You focused for ${fmtDuration(focusMs)}. What did you get done?`),
-    el('label', { class: 'field' }, 'Focus', skillSelect),
+    el('label', { class: 'field' }, 'Unit', skillSelect),
     fields,
     el('div', { class: 'field' }, 'How focused were you? (1–5)', ratingGroup),
     el('label', { class: 'field' }, 'Notes (optional)',

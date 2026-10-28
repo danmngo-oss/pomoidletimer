@@ -4,28 +4,30 @@
 // is why the game must be served over http:// rather than opened as a file).
 //
 // How the code fits together:
-//   • state.js holds ONE big object with the whole game (foci, sessions,
-//     timer, breaks…) and saves it to the browser's localStorage.
+//   • state.js holds ONE big object with the whole game (units, buildings,
+//     currencies, goals, sessions, timer, breaks…) and saves it to the
+//     browser's localStorage.
 //   • Every other module owns one part of the screen. It reads from the
 //     state, changes it through store.update(...), and re-draws itself when
 //     the state it cares about changes (store.subscribe(...)).
-//   • economy.js holds the game-balance maths; format.js and ui.js are small
-//     helpers shared by everyone.
+//   • economy.js holds the game-balance maths; stats.js and grid.js describe
+//     unit types and the city's tiles; format.js and ui.js are small helpers
+//     shared by everyone.
 //
-// Naming note: the player sees "foci" (one "focus"), but in the code a focus
-// is called a `skill` — that was its original name.
+// Naming note: the player sees "units" (slimes in the city), but in the code
+// a unit is called a `skill` — that was its original name.
 // ============================================================================
 import { store, isFirstRun } from './state.js';
 import { $, toast } from './ui.js';
 import { seedStarterSkills } from './skills.js';
 import { initClock } from './clock.js';
 import { initTimer } from './timer.js';
-import { initSkillMap } from './skillMap.js';
+import { initCityMap } from './cityMap.js';
 import { initHistory } from './history.js';
 import { initHud } from './hud.js';
 import { initIdle } from './idle.js';
 import { initBreaks } from './breaks.js';
-import { initGoalCard } from './goals.js';
+import { initGoals, initPaceCard } from './goals.js';
 
 // Wires up the Export / Import / Reset buttons in the top bar.
 function initSaveMenu() {
@@ -60,22 +62,23 @@ function initSaveMenu() {
   });
 
   $('reset-btn').addEventListener('click', () => {
-    if (confirm('Erase all progress, foci and history?')) store.reset();
+    if (confirm('Erase all progress: your city, units, goals and history?')) store.reset();
   });
 }
 
 // ---- Startup ---------------------------------------------------------------
-// A brand-new player (nothing in localStorage) gets a few example foci.
+// A brand-new player (nothing in localStorage) gets a few example units.
 if (isFirstRun) seedStarterSkills();
 
 // Each init function finds its part of index.html, draws it, and subscribes
 // to the state it needs. initIdle goes last because it may immediately pay
 // out "while you were away" earnings, which the other panels should show.
 initClock();
-initSkillMap();
+initCityMap();
 initTimer();
 initBreaks();
-initGoalCard();
+initPaceCard();
+initGoals();
 initHistory();
 initHud();
 initSaveMenu();

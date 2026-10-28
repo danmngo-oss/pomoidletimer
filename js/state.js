@@ -14,31 +14,37 @@
 // subscribed to 'skills' run again. This is a simple publish/subscribe
 // ("pub/sub") pattern; it keeps modules from needing to know about each other.
 //
-// Note: in code a "focus" (a node on the Focus Map) is called a `skill`.
+// Naming note: the player sees "units" (slimes in the city), but in the code
+// a unit is called a `skill` (state.skills), its original name.
 // ============================================================================
 
 import { uid } from './format.js';
+import { nearestFreeTile } from './grid.js';
 
 // The localStorage key the save is stored under.
 const SAVE_KEY = 'focusIdle.save';
 // Bump this whenever the shape of the saved data changes, and teach migrate()
 // (below) how to upgrade older saves.
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 // Every topic a module may subscribe to.
-export const TOPICS = ['skills', 'selection', 'currency', 'sessions', 'clock', 'timer', 'break', 'layout'];
+export const TOPICS = ['skills', 'selection', 'currency', 'sessions', 'clock', 'timer', 'break', 'city', 'goals'];
 
 // The break presets a new player starts with. `minutes: null` means an
-// open-ended break that counts up instead of down. `categories` decides which
-// foci get the bonus when the break ends (see categories.js / breaks.js).
+// open-ended break that counts up instead of down. `categories` lists the
+// stats (see stats.js) whose output the break boosts when it ends.
 const DEFAULT_BREAK_PRESETS = [
-  { name: 'Take a walk', icon: '🚶', minutes: 10, categories: ['mental', 'physical'], metric: { unit: 'steps', target: 1000 } },
-  { name: 'Drink water', icon: '💧', minutes: 2, categories: ['physical'], metric: { unit: 'glasses', target: 1 } },
+  { name: 'Take a walk', icon: '🚶', minutes: 10, categories: ['int', 'str'], metric: { unit: 'steps', target: 1000 } },
+  { name: 'Drink water', icon: '💧', minutes: 2, categories: ['str'], metric: { unit: 'glasses', target: 1 } },
   { name: 'Answer texts', icon: '📱', minutes: 5, categories: ['life'], metric: null },
-  { name: 'Stretch', icon: '🧘', minutes: 5, categories: ['physical'], metric: null },
+  { name: 'Stretch', icon: '🧘', minutes: 5, categories: ['dex'], metric: null },
   { name: 'Tidy up', icon: '🧺', minutes: 10, categories: ['life'], metric: null },
-  { name: 'Open break', icon: '☕', minutes: null, categories: ['mental'], metric: null },
+  { name: 'Open break', icon: '☕', minutes: null, categories: ['int'], metric: null },
 ];
+
+// v2 break/focus categories -> v3 stats.
+const STAT_FOR_CATEGORY = { mental: 'int', physical: 'str', life: 'life' };
+const toStats = (categories = []) => [...new Set(categories.map((c) => STAT_FOR_CATEGORY[c] ?? c))];
 
 // The player's own time zone (e.g. "America/Chicago"), used as the World
 // Clock's starting zone. Falls back to UTC on very old browsers.
@@ -53,8 +59,12 @@ function localZone() {
 export function createDefaultState() {
   return {
     version: SAVE_VERSION,
-    momentum: 0,              // global currency, earned only from logged sessions
-    skills: [],               // see makeSkill() in skills.js
+    momentum: 0,              // ◆ earned only from logged sessions; buys buildings
+    currencies: { int: 0, str: 0, dex: 0 },  // produced by units every second
+    skills: [],               // the units; see makeSkill() in skills.js
+    buildings: [],            // { id, type: 'int'|'str'|'dex', level, tile: { c, r } }
+    city: { keepLevel: 1 },   // the central building
+    goals: [],                // see goals.js
     sessions: [],             // log of completed sessions, newest first
     selectedSkillId: null,
     clock: { hour12: true, timeZone: localZone(), extraZones: [] },
@@ -71,13 +81,14 @@ export function createDefaultState() {
     })),
     activeBreak: null,        // { presetId, name, icon, durationMs, categories, metric, startedAt }
     breaks: [],               // log of finished breaks, newest first
-    buffs: {},                // category -> epoch ms when its break bonus expires
+    buffs: {},                // stat -> epoch ms when its break bonus expires
     lastSeen: Date.now(),     // used for offline idle progress
   };
 }
 
 // Upgrade older saves here when the shape changes (bump SAVE_VERSION).
-function migrate(raw) {
+// Exported so the upgrade can be tested on its own.
+export function migrate(raw) {
   const base = createDefaultState();
   // `...` (spread) copies fields. Defaults go first, then the save's own
   // values overwrite them, so any field the save lacks keeps its default.
@@ -87,6 +98,7 @@ function migrate(raw) {
     ...raw,
     clock: { ...base.clock, ...raw.clock },
     timer: { ...base.timer, ...raw.timer },
+    city: { ...base.city, ...raw.city },
     version: SAVE_VERSION,
   };
   // `??` means "use the right side if the left is null/undefined".
@@ -107,7 +119,60 @@ function migrate(raw) {
     s.breaks = s.breaks.map((b) => ({ categories: [], bonusMs: 0, ...b }));
     if (s.activeBreak) s.activeBreak = { categories: [], metric: null, ...s.activeBreak };
   }
+  if ((raw.version ?? 1) < 3) {
+    // v3: the Focus Map became a city. Foci became units with stats
+    // (INT/STR/DEX or LIFE), their separate currencies were pooled into one
+    // currency per stat, and each focus's daily goal became a standalone goal.
+    s.currencies = { int: 0, str: 0, dex: 0, ...raw.currencies };
+    s.goals = [...(raw.goals ?? [])];
+    for (const k of s.skills) {
+      k.stats = k.stats ?? toStats([k.category ?? 'mental']);
+      // Old per-focus currency joins its stat's pool; a Life unit's is shared
+      // out evenly, since Life units no longer produce.
+      const pools = k.stats.includes('life') ? ['int', 'str', 'dex'] : k.stats;
+      for (const pool of pools) s.currencies[pool] += (k.currency ?? 0) / pools.length;
+      const goal = k.goal && goalFromV2(k);
+      if (goal) s.goals.push(goal);
+      for (const old of ['currency', 'category', 'goal', 'goalAdjust', 'goalAdjustMode', 'pos']) delete k[old];
+      k.buildingId = null;
+      k.tile = null;
+    }
+    s.breakPresets = s.breakPresets.map((p) => ({ ...p, categories: toStats(p.categories) }));
+    s.breaks = s.breaks.map((b) => ({ ...b, categories: toStats(b.categories) }));
+    if (s.activeBreak) s.activeBreak.categories = toStats(s.activeBreak.categories);
+    s.buffs = Object.fromEntries(Object.entries(s.buffs ?? {}).map(([c, t]) => [STAT_FOR_CATEGORY[c] ?? c, t]));
+    delete s.focus;
+  }
+  // Every save: a unit is either working in a building that exists, or
+  // standing on a tile of its own.
+  for (const k of s.skills) {
+    if (k.buildingId && !s.buildings.some((b) => b.id === k.buildingId)) k.buildingId = null;
+    if (!k.buildingId && !k.tile) k.tile = nearestFreeTile(s);
+  }
   return s;
+}
+
+// A v2 focus's daily goal, as a v3 standalone goal (or null if its metric
+// no longer exists). Metric goals now match by unit name ("chars"), so they
+// can count several units' metrics at once.
+function goalFromV2(k) {
+  const metric = k.goal.measure === 'time' ? null : k.metrics.find((m) => m.id === k.goal.measure);
+  if (k.goal.measure !== 'time' && !metric) return null;
+  const adj = k.goalAdjust && k.goalAdjust.measure === k.goal.measure ? k.goalAdjust : null;
+  return {
+    id: uid(),
+    name: k.name,
+    period: 'daily',
+    start: k.goal.start,
+    end: k.goal.end,
+    units: [k.id],
+    measure: metric ? metric.unit : 'time',
+    target: k.goal.target,
+    adjustMode: k.goalAdjustMode ?? 'amount',
+    // Daily period keys use the same date format v2 used, so today's
+    // adjustments carry straight over.
+    adjust: adj ? { key: adj.day, amount: adj.amount ?? 0, rows: adj.rows ?? [] } : null,
+  };
 }
 
 // Reads the save from localStorage. Returns null when there is none (a new

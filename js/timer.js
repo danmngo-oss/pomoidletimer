@@ -115,7 +115,7 @@ export function initTimer() {
     if (elapsed(store.state.timer) > 60_000 && !confirm('Discard this session without logging it?')) return;
     reset();
   });
-  // Picking a focus here selects it everywhere (map, pace card…).
+  // Picking a unit here selects it everywhere (city map, pace card…).
   skillSelect.addEventListener('change', () => selectSkill(skillSelect.value || null));
 
   // Updates buttons and inputs to match the timer state. Runs on every
@@ -137,11 +137,11 @@ export function initTimer() {
     tick();
   }
 
-  // Refills the "Working on" dropdown when foci are added/removed/renamed.
+  // Refills the "Working on" dropdown when units are added/removed/renamed.
   function renderSkills() {
     const { skills, selectedSkillId } = store.state;
     skillSelect.replaceChildren(
-      ...(skills.length ? [] : [el('option', { value: '' }, '— add a focus first —')]),
+      ...(skills.length ? [] : [el('option', { value: '' }, '— add a unit first —')]),
       ...skills.map((s) => el('option', { value: s.id }, `${s.icon} ${s.name}`)),
     );
     skillSelect.value = selectedSkillId ?? '';

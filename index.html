@@ -10,7 +10,6 @@
 <body>
   <header class="topbar">
     <h1 class="brand">Focus&nbsp;Idle</h1>
-    <div class="hud" id="hud"></div>
     <div class="menu">
       <button id="export-btn" class="ghost" type="button">Export</button>
       <button id="import-btn" class="ghost" type="button">Import</button>
@@ -20,10 +19,10 @@
   </header>
 
   <main class="layout">
-    <!-- World clock -->
+    <!-- Time (world clock) -->
     <section class="panel" id="clock-panel" aria-labelledby="clock-title">
       <div class="panel-head">
-        <h2 id="clock-title">World Clock</h2>
+        <h2 id="clock-title">Time</h2>
         <button id="clock-format" class="chip" type="button" title="Toggle 12/24 hour">12h</button>
       </div>
       <div class="clock-main">
@@ -42,7 +41,7 @@
       </div>
     </section>
 
-    <!-- Focus timer / stopwatch -->
+    <!-- Stopwatch / timer, with the selected unit's pace -->
     <section class="panel" id="timer-panel" aria-labelledby="timer-title">
       <div class="panel-head">
         <h2 id="timer-title">Focus Session</h2>
@@ -55,7 +54,6 @@
       <label class="field">Working on
         <select id="timer-skill"></select>
       </label>
-      <div id="pace-card" class="pace-card"></div>
       <div id="timer-display" class="timer-display">25:00</div>
       <div class="progress" aria-hidden="true"><div id="timer-progress"></div></div>
       <div id="timer-duration" class="row duration">
@@ -71,19 +69,34 @@
         <button id="timer-finish" type="button">Finish &amp; log</button>
         <button id="timer-reset" class="ghost" type="button">Reset</button>
       </div>
+      <div id="pace-card" class="pace-card"></div>
     </section>
 
-    <!-- Skill map -->
+    <!-- Goals -->
+    <section class="panel" id="goals-panel" aria-labelledby="goals-title">
+      <div class="panel-head">
+        <h2 id="goals-title">Goals</h2>
+        <button id="goal-add" class="primary" type="button">+ Add goal</button>
+      </div>
+      <div id="goals-list" class="goals-list"></div>
+    </section>
+
+    <!-- Currencies -->
+    <div id="currency-bar" class="currency-bar" aria-label="Currencies"></div>
+
+    <!-- The city -->
     <section class="panel map-panel" id="map-panel" aria-labelledby="map-title">
       <div class="panel-head">
-        <h2 id="map-title">Focus Map</h2>
+        <h2 id="map-title">Your City</h2>
         <div class="row">
-          <button id="map-edit" class="ghost" type="button">Edit selected</button>
-          <button id="map-add" class="primary" type="button">+ Add a Focus</button>
+          <button id="map-edit" class="ghost" type="button">Edit unit</button>
+          <button id="map-add" class="ghost" type="button">+ Add unit</button>
+          <button id="map-keep" class="ghost" type="button">🏰 Keep</button>
+          <button id="map-build" class="primary" type="button">🏗 Build</button>
         </div>
       </div>
-      <svg id="skill-map" class="skill-map" role="group" aria-label="Focus map"></svg>
-      <p class="muted hint">Click a focus to work on it · drag to rearrange · double-click to edit · click <strong>You</strong> to take a break</p>
+      <svg id="city-map" class="city-map" role="group" aria-label="City map"></svg>
+      <p class="muted hint">Click a unit to work on it (twice to edit) · drag units onto buildings to put them to work · click a building to manage it, drag it to move it · click the <strong>Keep</strong> to take a break</p>
     </section>
 
     <!-- Session history -->
@@ -95,7 +108,7 @@
       <div class="table-wrap">
         <table class="history">
           <thead>
-            <tr><th>When</th><th>Focus</th><th>Time</th><th>Output</th><th>Productivity</th><th>Rewards</th></tr>
+            <tr><th>When</th><th>Unit</th><th>Time</th><th>Output</th><th>Productivity</th><th>Rewards</th></tr>
           </thead>
           <tbody id="history-body"></tbody>
         </table>
@@ -106,6 +119,8 @@
   <dialog id="session-dialog" class="dialog"></dialog>
   <dialog id="skill-dialog" class="dialog"></dialog>
   <dialog id="break-dialog" class="dialog"></dialog>
+  <dialog id="goal-dialog" class="dialog"></dialog>
+  <dialog id="building-dialog" class="dialog"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 </body>
 </html>
