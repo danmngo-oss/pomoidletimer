@@ -28,6 +28,8 @@ import { initHud } from './hud.js';
 import { initIdle } from './idle.js';
 import { initBreaks } from './breaks.js';
 import { initGoals, initPaceCard } from './goals.js';
+import { initWindows } from './windows.js';
+import { initUnitsWindow } from './unitsWindow.js';
 
 // Wires up the Export / Import / Reset buttons in the top bar.
 function initSaveMenu() {
@@ -71,14 +73,17 @@ function initSaveMenu() {
 if (isFirstRun) seedStarterSkills();
 
 // Each init function finds its part of index.html, draws it, and subscribes
-// to the state it needs. initIdle goes last because it may immediately pay
+// to the state it needs. initWindows goes first so the Time, Focus Session
+// and Goals windows exist; initIdle goes last because it may immediately pay
 // out "while you were away" earnings, which the other panels should show.
+initWindows();
 initClock();
 initCityMap();
 initTimer();
 initBreaks();
 initPaceCard();
 initGoals();
+initUnitsWindow();
 initHistory();
 initHud();
 initSaveMenu();

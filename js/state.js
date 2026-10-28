@@ -232,9 +232,11 @@ export const store = {
   // replace() swaps in a new one.
   get state() { return state; },
 
-  // Run `fn` whenever any of the given topics is updated.
+  // Run `fn` whenever any of the given topics is updated. Returns a function
+  // that stops it again (used by windows that can be closed).
   subscribe(topics, fn) {
     for (const topic of [].concat(topics)) listeners.get(topic)?.add(fn);
+    return () => { for (const topic of [].concat(topics)) listeners.get(topic)?.delete(fn); };
   },
 
   // Change the state, then notify subscribers and schedule a save.

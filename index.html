@@ -10,6 +10,13 @@
 <body>
   <header class="topbar">
     <h1 class="brand">Focus&nbsp;Idle</h1>
+    <!-- Dock: opens and closes the floating windows (see js/windows.js). -->
+    <nav class="dock" aria-label="Windows">
+      <button class="chip" type="button" data-window-toggle="clock">🕒 Time</button>
+      <button class="chip" type="button" data-window-toggle="timer">⏱ Focus</button>
+      <button class="chip" type="button" data-window-toggle="goals">🎯 Goals</button>
+      <button class="chip" type="button" data-window-toggle="units">🧪 Units</button>
+    </nav>
     <div class="menu">
       <button id="export-btn" class="ghost" type="button">Export</button>
       <button id="import-btn" class="ghost" type="button">Import</button>
@@ -18,11 +25,14 @@
     </div>
   </header>
 
-  <main class="layout">
+  <!-- Floating windows. js/windows.js adds each one's title bar and makes it
+       movable; on narrow screens they stack here in the page instead. The
+       Units window and building windows are created by JavaScript. -->
+  <div id="windows" class="window-layer">
     <!-- Time (world clock) -->
-    <section class="panel" id="clock-panel" aria-labelledby="clock-title">
-      <div class="panel-head">
-        <h2 id="clock-title">Time</h2>
+    <section id="clock-panel" aria-label="Time">
+      <div class="row">
+        <span class="muted small grow">Your time and other time zones</span>
         <button id="clock-format" class="chip" type="button" title="Toggle 12/24 hour">12h</button>
       </div>
       <div class="clock-main">
@@ -42,9 +52,8 @@
     </section>
 
     <!-- Stopwatch / timer, with the selected unit's pace -->
-    <section class="panel" id="timer-panel" aria-labelledby="timer-title">
-      <div class="panel-head">
-        <h2 id="timer-title">Focus Session</h2>
+    <section id="timer-panel" aria-label="Focus Session">
+      <div class="row">
         <div class="segmented" id="timer-mode">
           <button type="button" data-mode="countdown">Timer</button>
           <button type="button" data-mode="stopwatch">Stopwatch</button>
@@ -73,14 +82,16 @@
     </section>
 
     <!-- Goals -->
-    <section class="panel" id="goals-panel" aria-labelledby="goals-title">
-      <div class="panel-head">
-        <h2 id="goals-title">Goals</h2>
+    <section id="goals-panel" aria-label="Goals">
+      <div class="row">
+        <span class="muted small grow">Hourly, daily or weekly targets</span>
         <button id="goal-add" class="primary" type="button">+ Add goal</button>
       </div>
       <div id="goals-list" class="goals-list"></div>
     </section>
+  </div>
 
+  <main class="layout">
     <!-- Currencies -->
     <div id="currency-bar" class="currency-bar" aria-label="Currencies"></div>
 
@@ -89,6 +100,7 @@
       <div class="panel-head">
         <h2 id="map-title">Your City</h2>
         <div class="row">
+          <button class="ghost" type="button" data-window-toggle="units">🧪 Units</button>
           <button id="map-edit" class="ghost" type="button">Edit unit</button>
           <button id="map-add" class="ghost" type="button">+ Add unit</button>
           <button id="map-keep" class="ghost" type="button">🏰 Keep</button>
@@ -96,7 +108,7 @@
         </div>
       </div>
       <svg id="city-map" class="city-map" role="group" aria-label="City map"></svg>
-      <p class="muted hint">Click a unit to work on it (twice to edit) · drag units onto buildings to put them to work · click a building to manage it, drag it to move it · click the <strong>Keep</strong> to take a break</p>
+      <p class="muted hint">Click a unit to work on it (twice to edit) · drag units onto buildings to put them to work · click a building to open it, drag it to move it · click the <strong>Keep</strong> to take a break · move windows by their title bars</p>
     </section>
 
     <!-- Session history -->

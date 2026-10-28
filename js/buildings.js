@@ -1,6 +1,7 @@
 // ============================================================================
 // buildings.js — the city's buildings and the Keep: buying, upgrading,
-// moving, assigning units, and the dialogs for all of that.
+// moving and assigning units, plus the Build menu and Keep dialogs. (Each
+// building's own window, showing its interior, is in buildingWindow.js.)
 //
 // A building is { id, type, level, tile }. Its type is a stat ('int', 'str'
 // or 'dex'): units with that stat get a bonus working there, but any unit
@@ -16,9 +17,9 @@
 import { store } from './state.js';
 import { $, el, toast } from './ui.js';
 import { fmtNum, uid } from './format.js';
-import { STATS, PRODUCING_STATS, statIcons, statLabels } from './stats.js';
+import { STATS, PRODUCING_STATS } from './stats.js';
 import {
-  buildCost, buildingCapacity, buildingUpgradeCost, keepMultiplier, keepUpgradeCost, lifeAura, matchBonus,
+  buildCost, buildingCapacity, buildingUpgradeCost, keepMultiplier, keepUpgradeCost, matchBonus,
 } from './economy.js';
 import { nearestFreeTile } from './grid.js';
 
@@ -124,8 +125,8 @@ export function assignUnit(unitId, buildingId, tile = null) {
 }
 
 // ---- Dialogs -----------------------------------------------------------------
-// All three share <dialog id="building-dialog">. Each dialog redraws itself
-// after an action (show()), so numbers and buttons stay current.
+// Both share <dialog id="building-dialog">. The Keep dialog redraws itself
+// after an upgrade (show()), so numbers and buttons stay current.
 
 const dialog = () => $('building-dialog');
 function showDialog(body) {
@@ -156,57 +157,6 @@ export function openBuildMenu() {
       el('span', { class: 'muted small' }, `${buildingCapacity(1)} workers`),
       el('span', { class: 'build-cost' }, `${cost} ◆`)))),
     el('div', { class: 'row dialog-actions' }, el('span', { class: 'grow' }, ''), closeBtn())));
-}
-
-// One building: its workers, bonus, upgrade and demolish.
-export function openBuildingDialog(id) {
-  const show = () => {
-    const s = store.state;
-    const b = getBuilding(id);
-    if (!b) return dialog().close();
-    const type = BUILDING_TYPES[b.type];
-    const workers = unitsIn(s, id);
-    const cap = buildingCapacity(b.level);
-    const upgradeCost = buildingUpgradeCost(b.level);
-    const aura = workers.filter((u) => u.stats.includes('life')).reduce((sum, u) => sum + lifeAura(u), 0);
-    // Units that could be moved in here.
-    const others = s.skills.filter((u) => u.buildingId !== id);
-    const picker = el('select', { 'aria-label': 'Unit to assign' },
-      el('option', { value: '' }, 'Assign a unit…'),
-      ...others.map((u) => el('option', { value: u.id }, `${u.name} (${statLabels(u.stats)}, Lv ${u.level})`)));
-    picker.addEventListener('change', () => {
-      if (picker.value) assignUnit(picker.value, id);
-      show();
-    });
-
-    showDialog(el('div', { class: 'dialog-body' },
-      el('h3', {}, `${type.icon} ${type.name} · Lv ${b.level}`),
-      el('p', { class: 'muted small' },
-        `${STATS[b.type].icon} ${STATS[b.type].label} units get +${pct(matchBonus(b.level))} ${STATS[b.type].label} here.`
-        + (aura ? ` LIFE workers add +${pct(aura)} to everyone else here.` : ' Add a LIFE unit to buff everyone working here.')),
-      el('h4', {}, `Workers ${workers.length}/${cap}`),
-      workers.length
-        ? el('ul', { class: 'worker-list' }, workers.map((u) => el('li', {},
-          el('span', { class: 'dot', style: `background:${u.color}` }),
-          el('span', { class: 'grow' }, `${u.name} `, el('span', { class: 'muted small' }, `${statIcons(u.stats)} Lv ${u.level}`)),
-          el('button', { type: 'button', class: 'ghost chip', onclick: () => { assignUnit(u.id, null); show(); } }, 'Remove'))))
-        : el('p', { class: 'muted small' }, 'Nobody works here yet. Drag a unit onto the building, or pick one below.'),
-      workers.length < cap && others.length ? picker : null,
-      el('div', { class: 'row dialog-actions' },
-        el('button', {
-          type: 'button', class: 'ghost danger',
-          onclick: () => { if (confirm(`Demolish this ${type.name}? There's no refund; its workers return to the city.`)) { demolishBuilding(id); dialog().close(); } },
-        }, 'Demolish'),
-        el('span', { class: 'grow' }),
-        el('button', {
-          type: 'button', class: 'primary',
-          disabled: s.currencies[b.type] < upgradeCost,
-          title: `More worker slots and +5% bonus. You have ${fmtNum(s.currencies[b.type])} ${STATS[b.type].label}.`,
-          onclick: () => { upgradeBuilding(id); show(); },
-        }, `Upgrade · ${fmtNum(upgradeCost)} ${STATS[b.type].label}`),
-        closeBtn())));
-  };
-  show();
 }
 
 // The Keep: city-wide bonus and its upgrade.

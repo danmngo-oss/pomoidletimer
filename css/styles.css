@@ -98,6 +98,11 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 }
 .brand { font-size: 1.15rem; }
 .menu { display: flex; gap: 6px; margin-left: auto; }
+.dock { display: flex; gap: 6px; flex-wrap: wrap; }
+.dock button[aria-pressed="true"], [data-window-toggle][aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+}
 
 .layout {
   display: grid;
@@ -105,31 +110,15 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
   padding: 16px;
   max-width: 1500px;
   margin: 0 auto;
-  align-items: start;
-  /* Matches the sketch: Time | Stopwatch/Timer | Goals, then currencies,
-     the city, and the session log. */
-  grid-template-columns: minmax(250px, 1fr) minmax(320px, 1.2fr) minmax(300px, 1.2fr);
-  grid-template-areas:
-    "clock timer goals"
-    "bar bar bar"
-    "map map map"
-    "history history history";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "bar" "map" "history";
 }
-#clock-panel { grid-area: clock; }
-#timer-panel { grid-area: timer; }
-#goals-panel { grid-area: goals; }
 #currency-bar { grid-area: bar; }
 #map-panel { grid-area: map; }
 #history-panel { grid-area: history; }
 
-@media (max-width: 1100px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: "timer goals" "clock goals" "bar bar" "map map" "history history";
-  }
-}
 @media (max-width: 760px) {
-  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "timer" "goals" "bar" "map" "clock" "history"; padding: 12px; }
+  .layout { padding: 12px; }
   .topbar { padding: 10px 16px; gap: 10px; }
 }
 
@@ -474,5 +463,130 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .build-icon { font-size: 2rem; line-height: 1.2; }
 .build-cost { font-weight: 700; margin-top: 4px; }
 @media (max-width: 520px) { .build-grid { grid-template-columns: 1fr; } }
-.worker-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.worker-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 10px; background: var(--panel-2); }
+
+/* ---- Floating windows (js/windows.js) ---- */
+/* A see-through layer over the whole viewport; only the windows on it
+   catch clicks, so the city underneath stays usable. */
+.window-layer { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+.window {
+  position: absolute;
+  pointer-events: auto;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 14px 40px rgb(0 0 0 / .45);
+}
+.window-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 5px 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+.window-title { font-weight: 650; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.window-btn { padding: 0 9px; line-height: 1.6; background: transparent; border-color: transparent; font-size: 1rem; }
+.window-btn:hover:not(:disabled) { background: var(--panel); }
+.window-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 160px); overflow: auto; }
+.window.minimized .window-body { display: none; }
+.window.minimized .window-bar { border-bottom: 0; }
+.window.moving { opacity: .92; box-shadow: 0 20px 50px rgb(0 0 0 / .55); }
+/* Phones: windows stop floating and stack at the top of the page. */
+@media (max-width: 760px) {
+  .window-layer { position: static; inset: auto; pointer-events: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 0; }
+  .window { position: static; width: auto !important; max-width: none; box-shadow: none; }
+  .window-bar { cursor: default; }
+  .window-body { max-height: none; }
+}
+
+/* ---- Units window ---- */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tabs button { padding: 3px 10px; border-radius: 999px; font-size: .8rem; }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.window-body input[type="search"] { flex: 1; }
+.send-hint { padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); }
+.unit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  min-height: 140px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 2px dashed transparent;
+  align-content: start;
+}
+.grid-empty { grid-column: 1 / -1; text-align: center; margin: 24px 0; }
+.unit-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  text-align: center;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: border-color .15s;
+}
+.unit-card:hover { border-color: var(--accent); }
+.unit-card.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.unit-card-name { font-size: .9rem; overflow-wrap: anywhere; }
+.send-btn { margin-top: 4px; }
+.unit-icon .unit-body { stroke-width: 2.5; }
+
+/* ---- Building window ---- */
+.building-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 2px dashed color-mix(in srgb, var(--slot-color, var(--accent)) 45%, var(--border));
+  background: color-mix(in srgb, var(--slot-color, var(--accent)) 8%, var(--panel-2));
+}
+.slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 108px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  text-align: center;
+}
+.slot.filled { background: var(--panel); border: 1px solid var(--border); cursor: grab; user-select: none; touch-action: none; }
+.slot.filled.selected { border-color: var(--accent); }
+.slot.empty { border: 1px dashed var(--border); background: transparent; color: var(--muted); }
+.slot-plus { font-size: 1.5rem; line-height: 1; }
+.slot-name { font-size: .85rem; font-weight: 600; overflow-wrap: anywhere; }
+.slot-remove { position: absolute; top: 3px; right: 3px; padding: 0 6px; }
+
+/* ---- Dragging cards between windows (js/unitDrag.js) ---- */
+.drop-hover { border-color: var(--success) !important; background: color-mix(in srgb, var(--success) 12%, transparent) !important; }
+.drag-chip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 4px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 20px rgb(0 0 0 / .4);
+  font-size: .85rem;
+  font-weight: 600;
+}

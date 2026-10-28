@@ -16,6 +16,10 @@ python3 -m http.server 8000      # or: npx serve
 # open http://localhost:8000
 ```
 
+## Windows
+
+**Time**, **Focus Session**, **Goals** and **Units** are floating windows over the city. Drag a window by its title bar to move it, use **–** to minimise it and **×** to close it, and reopen any window from the dock in the top bar. Clicking a window brings it to the front. Positions are remembered in your browser. On phone-width screens the windows stack at the top of the page instead of floating.
+
 ## How it plays
 
 1. **Pick a unit** on the city map (or in the "Working on" dropdown). Each unit stands for something you work on, like Note-taking or Exercise.
@@ -41,8 +45,9 @@ python3 -m http.server 8000      # or: npx serve
 
 - **Buildings** (cubes, for now) are bought with ◆ Momentum: 📚 **Library** (INT), ⚒️ **Forge** (STR) and 🛠️ **Workshop** (DEX). Each costs more than the last (20, 32, 51…).
 - **Drag a unit onto a building** to put it to work, or onto an empty tile to stand it there. Any unit can work in any building. A building of the unit's own stat adds **+25%** to that stat's share (+5% per building level).
+- **The Units window** (🧪 Units) lists every unit as a card, with a search box and tabs: All, INT, STR, DEX, LIFE, Idle and Working. Click a card to select that unit, click it twice to edit it, or drag it into a building window or onto the map. Drop a working unit back on the grid to take it off work.
 - **Unassigned units** still produce at full rate.
-- **Click a building** to see its workers, assign or remove units, **upgrade** it (paid in its own stat's currency; adds a worker slot and a bigger bonus) or demolish it. Drag a building to move it.
+- **Click a building** to open its window, which shows the inside: one slot per worker place. Drag units in from the Units window or the map, and drag workers out (or press their ✕). Click an empty slot to open the Units window: while a building window is open, each unit card gets a **➜** button that sends that unit to it. The window also **upgrades** the building (paid in its own stat's currency; adds a worker slot and a bigger bonus) and demolishes it. Drag a building on the map to move it.
 - **The Keep** in the middle is home to your crowned monarch slime. **Click it to take a break.** Upgrade it with **🏰 Keep** (INT + STR + DEX) for **+10% city-wide output per level**.
 
 ### Breaks
@@ -90,15 +95,20 @@ Adjustments only change the goal display. They never affect XP, Momentum, curren
 
 | File | Responsibility |
 |---|---|
-| `index.html` | Page structure: Time, Focus Session and Goals panels, currency bar, city, session log, and five `<dialog>`s |
+| `index.html` | Page structure: the dock, the Time, Focus Session and Goals windows, currency bar, city, session log, and five `<dialog>`s |
 | `css/styles.css` | All styling. Themes are CSS custom properties under `[data-theme]` |
 | `js/main.js` | Entry point. Wires every module together, plus export/import/reset |
 | `js/state.js` | The single state object, pub/sub by topic, localStorage save and migrations (v1 → v2 → v3) |
 | `js/economy.js` | **All balance formulas**: XP, evolutions, hybrid split, building/Keep/Life bonuses and costs, city production, break-bonus curve. Tune here |
 | `js/stats.js` | The INT / STR / DEX / LIFE stats, their shapes and colours |
 | `js/grid.js` | The city's tile grid: what's on a tile, the nearest free tile |
+| `js/windows.js` | Movable floating windows: title bars, minimise/close, the dock, remembered positions |
 | `js/cityMap.js` | The isometric city: drawing, selecting, dragging units and buildings |
-| `js/buildings.js` | Buying, upgrading, moving and staffing buildings; the Keep; their dialogs |
+| `js/unitArt.js` | How units look (stand-in shapes with eyes), on the map and as card icons |
+| `js/unitsWindow.js` | The Units window: searchable, tabbed grid of unit cards |
+| `js/buildingWindow.js` | A building's interior window: worker slots, upgrade, demolish |
+| `js/unitDrag.js` | Dragging unit cards between windows and onto the map |
+| `js/buildings.js` | Buying, upgrading, moving and staffing buildings; the Keep; Build menu and Keep dialogs |
 | `js/skills.js` | Unit data model, CRUD, metric presets, add/edit dialog |
 | `js/timer.js` | Countdown/stopwatch built on timestamps (accurate in background tabs, survives reloads) |
 | `js/breaks.js` | Breaks: presets, picker/manager dialog, banner, end-of-break bonus |
@@ -122,8 +132,8 @@ In the dev console, `focusIdle.store.state` shows the live state.
 
 ## Extension points for later
 
-- **Slime art:** units are drawn by `drawUnit()` in `cityMap.js`, with the stand-in shape picked from `stats.js` and the size from `evolution()` in `economy.js`. Each unit has a reserved `theme` field.
-- **Building art and types:** `drawCube()` and `drawBuilding()` in `cityMap.js`; types are listed in `BUILDING_TYPES` in `buildings.js`.
+- **Slime art:** units are drawn by `drawSlime()` and `unitIcon()` in `unitArt.js`, with the stand-in shape picked from `stats.js` and the size from `evolution()` in `economy.js`. Each unit has a reserved `theme` field.
+- **Building art and types:** `drawCube()` and `drawBuilding()` in `cityMap.js`, the interior in `buildingWindow.js`; types are listed in `BUILDING_TYPES` in `buildings.js`.
 - **Map customization:** buildings and units already sit on tiles you can rearrange. The grid size is `GRID` in `grid.js`.
 - **App themes:** add a `[data-theme="..."]` block in `styles.css` (a `paper` light theme is already there) and toggle `document.documentElement.dataset.theme`.
 - **More metric types:** presets are in `skills.js → METRIC_PRESETS`.

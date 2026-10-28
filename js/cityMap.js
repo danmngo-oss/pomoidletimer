@@ -7,7 +7,8 @@
 //     click it twice quickly to edit it
 //   • drag a unit onto a building to put it to work there, or onto an empty
 //     tile to stand it there
-//   • click a building to manage it; drag it to an empty tile to move it
+//   • click a building to open its window (buildingWindow.js); drag it to
+//     an empty tile to move it
 //   • click the Keep to take a break
 //
 // How the isometric drawing works: tile (c, r) is drawn as a diamond whose
@@ -24,10 +25,12 @@ import { store } from './state.js';
 import { $, svgEl, toast } from './ui.js';
 import { STATS, statLabels } from './stats.js';
 import { buildingCapacity, evolution, isBuffed } from './economy.js';
+import { drawShape, drawSlime } from './unitArt.js';
+import { openBuildingWindow } from './buildingWindow.js';
 import { CENTER, GRID, inGrid, isKeepTile, tileContents } from './grid.js';
 import { getSkill, openSkillEditor, selectSkill } from './skills.js';
 import {
-  BUILDING_TYPES, assignUnit, moveBuilding, openBuildMenu, openBuildingDialog, openKeepDialog, unitsIn,
+  BUILDING_TYPES, assignUnit, moveBuilding, openBuildMenu, openKeepDialog, unitsIn,
 } from './buildings.js';
 import { breakStatus, onBreakTick, openBreakPicker } from './breaks.js';
 
@@ -77,22 +80,9 @@ function drawCube(parent, tile, height, color, inset = 0.72) {
   return { x, y: y - height, hw, hh };
 }
 
-// One stand-in unit shape centred on (x, y), `size` = rough radius.
-function drawShape(shape, x, y, size, fill, cls) {
-  if (shape === 'square') {
-    const s = size * 0.88;
-    return svgEl('rect', { class: cls, x: x - s, y: y - s, width: s * 2, height: s * 2, rx: size * 0.3, fill });
-  }
-  if (shape === 'triangle') {
-    return svgEl('polygon', { class: cls, points: `${x},${y - size * 1.1} ${x + size},${y + size * 0.75} ${x - size},${y + size * 0.75}`, fill });
-  }
-  if (shape === 'diamond') return svgEl('polygon', { class: cls, points: diamond(x, y, size * 0.95, size * 1.15), fill });
-  return svgEl('circle', { class: cls, cx: x, cy: y, r: size, fill });
-}
-
-// A unit: shadow, selection ring, body shape (its first stat's shape, outlined
-// in that stat's colour), small marks for any extra stats, and — when not
-// `mini` — eyes plus name/level labels. Bigger evolutions are drawn bigger.
+// A unit: shadow, selection ring and its slime body (see unitArt.js), plus
+// name/level labels unless it's a `mini` worker on a roof. Bigger
+// evolutions are drawn bigger.
 function drawUnit(unit, x, y, mini = false) {
   const { stage, name: evoName } = evolution(unit.level);
   const size = mini ? 7 : 12 + stage * 3;
@@ -109,15 +99,9 @@ function drawUnit(unit, x, y, mini = false) {
     svgEl('title', {}, `${unit.name} · ${statLabels(unit.stats)} · Lv ${unit.level} ${evoName}`),
     svgEl('ellipse', { class: 'unit-shadow', cx: x, cy: y + size * 0.95, rx: size * 0.95, ry: size * 0.35 }),
     svgEl('ellipse', { class: 'unit-select', cx: x, cy: y + size * 0.95, rx: size * 1.5, ry: size * 0.6 }),
-    drawShape(main.shape, x, y, size, unit.color, 'unit-body'),
   );
-  unit.stats.slice(1).forEach((s, i) => {
-    g.append(drawShape(STATS[s].shape, x + size * 0.95 + i * size * 0.75, y - size * 0.95, size * 0.34, STATS[s].color, 'unit-mark'));
-  });
+  drawSlime(g, unit, x, y, size, { eyes: !mini });
   if (!mini) {
-    // Two dots for eyes make the shapes read as slimes.
-    const eyeY = main.shape === 'triangle' ? y + size * 0.2 : y - size * 0.1;
-    for (const dx of [-0.32, 0.32]) g.append(svgEl('circle', { class: 'unit-eye', cx: x + dx * size, cy: eyeY, r: Math.max(1.6, size * 0.12) }));
     g.append(
       svgEl('text', { class: 'unit-name', x, y: y + size * 1.95 + 6, 'text-anchor': 'middle' }, unit.name),
       svgEl('text', { class: 'unit-level', x, y: y + size * 1.95 + 18, 'text-anchor': 'middle' }, `Lv ${unit.level}`),
@@ -125,6 +109,12 @@ function drawUnit(unit, x, y, mini = false) {
   }
   return g;
 }
+
+// Lets unitDrag.js ask where a unit dragged in from a window would land:
+// cityDropAt(clientX, clientY, unitId) -> the same answer as dropTarget()
+// below, or null before the map exists. Set up by initCityMap.
+let dropProbe = null;
+export const cityDropAt = (x, y, unitId) => dropProbe?.(x, y, unitId) ?? null;
 
 export function initCityMap() {
   const svg = $('city-map');
@@ -298,10 +288,15 @@ export function initCityMap() {
     else moveBuilding(id, target.tile);
   }
 
+  dropProbe = (clientX, clientY, unitId) => {
+    const ev = { clientX, clientY };
+    return dropTarget('unit', unitId, tileUnderPointer(ev, toSvgPoint(ev)));
+  };
+
   let lastClick = { id: null, at: 0 };
   function click(kind, id) {
     if (kind === 'keep') return openBreakPicker();
-    if (kind === 'building') return openBuildingDialog(id);
+    if (kind === 'building') return openBuildingWindow(id);
     // Two clicks on the same unit within 400ms = edit it.
     const now = Date.now();
     if (lastClick.id === id && now - lastClick.at < 400) {
@@ -362,7 +357,7 @@ export function initCityMap() {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
     if (unitEl) selectSkill(unitEl.dataset.unit);
-    else if (e.target.closest('[data-building]')) openBuildingDialog(e.target.closest('[data-building]').dataset.building);
+    else if (e.target.closest('[data-building]')) openBuildingWindow(e.target.closest('[data-building]').dataset.building);
     else if (e.target.closest('[data-keep]')) openBreakPicker();
   });
 
