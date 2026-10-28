@@ -403,6 +403,7 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .hint { margin: 0; font-size: .8rem; text-align: center; }
 .tile { fill: color-mix(in srgb, #6fbf73 30%, var(--panel)); stroke: color-mix(in srgb, #6fbf73 45%, var(--panel)); stroke-width: 1; }
 .tile.alt { fill: color-mix(in srgb, #6fbf73 36%, var(--panel)); }
+.tile.keep-ground { fill: color-mix(in srgb, #b9a98f 40%, var(--panel)); stroke: color-mix(in srgb, #b9a98f 55%, var(--panel)); }
 .slab-left { fill: color-mix(in srgb, #9a7650 75%, var(--panel)); }
 .slab-right { fill: color-mix(in srgb, #9a7650 50%, var(--panel)); }
 .face { stroke: rgb(0 0 0 / .25); stroke-width: 1; stroke-linejoin: round; }

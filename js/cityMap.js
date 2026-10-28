@@ -24,7 +24,7 @@ import { store } from './state.js';
 import { $, svgEl, toast } from './ui.js';
 import { STATS, statLabels } from './stats.js';
 import { buildingCapacity, evolution, isBuffed } from './economy.js';
-import { CENTER, GRID, inGrid, tileContents } from './grid.js';
+import { CENTER, GRID, inGrid, isKeepTile, tileContents } from './grid.js';
 import { getSkill, openSkillEditor, selectSkill } from './skills.js';
 import {
   BUILDING_TYPES, assignUnit, moveBuilding, openBuildMenu, openBuildingDialog, openKeepDialog, unitsIn,
@@ -140,7 +140,9 @@ export function initCityMap() {
   for (let c = 0; c < GRID; c++) {
     for (let r = 0; r < GRID; r++) {
       const { x, y } = tileCenter({ c, r });
-      board.append(svgEl('polygon', { class: `tile${(c + r) % 2 ? ' alt' : ''}`, points: diamond(x, y, TW / 2, TH / 2) }));
+      // The Keep's grounds are paved; everything else is grass.
+      const cls = isKeepTile({ c, r }) ? 'tile keep-ground' : `tile${(c + r) % 2 ? ' alt' : ''}`;
+      board.append(svgEl('polygon', { class: cls, points: diamond(x, y, TW / 2, TH / 2) }));
     }
   }
   const objects = svgEl('g', { class: 'objects' });
@@ -178,7 +180,7 @@ export function initCityMap() {
     const workers = unitsIn(store.state, b.id);
     const g = svgEl('g', { class: 'building', 'data-building': b.id, tabindex: 0, role: 'button', 'aria-label': `${type.name}, level ${b.level}` });
     g.append(svgEl('title', {}, `${type.name} (${STATS[b.type].label}) · Lv ${b.level} · ${workers.length}/${buildingCapacity(b.level)} workers`));
-    const top = drawCube(g, b.tile, Math.min(90, 30 + b.level * 8), STATS[b.type].color);
+    const top = drawCube(g, b.tile, Math.min(70, 30 + b.level * 5), STATS[b.type].color);
     // Workers stand on the roof, spread around its centre.
     workers.forEach((u, i) => {
       const angle = (i / workers.length) * Math.PI * 2 - Math.PI / 2;
@@ -257,8 +259,22 @@ export function initCityMap() {
     return { ok: false, reason: 'Buildings need an empty tile.' };
   }
 
-  function showDragFeedback(kind, id, p) {
-    const tile = pointToTile(p);
+  // Which tile a drag is over. Buildings, the Keep and units are drawn
+  // standing up, so their roofs and heads overlap the tiles behind them:
+  // ask the browser what's actually under the pointer first, and only use
+  // the tile maths (pointToTile) when the pointer is over bare ground.
+  function tileUnderPointer(ev, p) {
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY);
+    const buildingEl = hit?.closest?.('#city-map [data-building]');
+    if (buildingEl) return store.state.buildings.find((b) => b.id === buildingEl.dataset.building)?.tile ?? pointToTile(p);
+    if (hit?.closest?.('#city-map [data-keep]')) return CENTER;
+    const unitEl = hit?.closest?.('#city-map [data-unit]');
+    const unitTile = unitEl && getSkill(unitEl.dataset.unit)?.tile;
+    return unitTile ?? pointToTile(p);
+  }
+
+  function showDragFeedback(kind, id, ev, p) {
+    const tile = tileUnderPointer(ev, p);
     const target = dropTarget(kind, id, tile);
     overlay.replaceChildren();
     if (inGrid(tile)) {
@@ -271,8 +287,8 @@ export function initCityMap() {
     }
   }
 
-  function drop(kind, id, p) {
-    const target = dropTarget(kind, id, pointToTile(p));
+  function drop(kind, id, ev, p) {
+    const target = dropTarget(kind, id, tileUnderPointer(ev, p));
     if (!target.ok) {
       if (target.reason) toast(target.reason);
       return;
@@ -322,7 +338,7 @@ export function initCityMap() {
         dragging = true;
         sourceEl.classList.add('drag-source');
       }
-      showDragFeedback(kind, id, p);
+      showDragFeedback(kind, id, ev, p);
     };
     const onUp = (ev) => {
       svg.removeEventListener('pointermove', onMove);
@@ -331,7 +347,7 @@ export function initCityMap() {
       overlay.replaceChildren();
       sourceEl?.classList.remove('drag-source');
       if (!dragging) return click(kind, id);
-      if (ev.type === 'pointerup') drop(kind, id, toSvgPoint(ev));
+      if (ev.type === 'pointerup') drop(kind, id, ev, toSvgPoint(ev));
     };
     svg.addEventListener('pointermove', onMove);
     svg.addEventListener('pointerup', onUp);

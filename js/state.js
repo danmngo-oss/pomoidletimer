@@ -19,7 +19,7 @@
 // ============================================================================
 
 import { uid } from './format.js';
-import { nearestFreeTile } from './grid.js';
+import { isKeepTile, nearestFreeTile } from './grid.js';
 
 // The localStorage key the save is stored under.
 const SAVE_KEY = 'focusIdle.save';
@@ -144,11 +144,15 @@ export function migrate(raw) {
     delete s.focus;
   }
   // Every save: a unit is either working in a building that exists, or
-  // standing on a tile of its own.
+  // standing on a tile of its own, and nothing stands on the Keep's grounds
+  // (early v3 saves could put units there).
+  for (const b of s.buildings) if (isKeepTile(b.tile)) b.tile = null;
   for (const k of s.skills) {
     if (k.buildingId && !s.buildings.some((b) => b.id === k.buildingId)) k.buildingId = null;
-    if (!k.buildingId && !k.tile) k.tile = nearestFreeTile(s);
+    if (k.tile && isKeepTile(k.tile)) k.tile = null;
   }
+  for (const b of s.buildings) b.tile ??= nearestFreeTile(s);
+  for (const k of s.skills) if (!k.buildingId && !k.tile) k.tile = nearestFreeTile(s);
   return s;
 }
 
