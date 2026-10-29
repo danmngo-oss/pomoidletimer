@@ -30,6 +30,7 @@ import { initBreaks } from './breaks.js';
 import { initGoals, initPaceCard } from './goals.js';
 import { initWindows } from './windows.js';
 import { initUnitsWindow } from './unitsWindow.js';
+import { initDevMode } from './devMode.js';
 
 // Wires up the Export / Import / Reset buttons in the top bar.
 function initSaveMenu() {
@@ -88,6 +89,9 @@ initHistory();
 initHud();
 initSaveMenu();
 initIdle();
+// Dev mode (?dev in the address): a window for adding currency freely.
+const setDevMode = initDevMode();
 
-// Handy for debugging in the console: focusIdle.store.state
-window.focusIdle = { store };
+// Handy for debugging in the console: focusIdle.store.state, and
+// focusIdle.dev(true / false) to switch dev mode on or off.
+window.focusIdle = { store, dev: (on = true) => setDevMode(on) };

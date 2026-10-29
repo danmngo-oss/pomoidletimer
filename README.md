@@ -91,6 +91,16 @@ Each goal's **± | Running total** switch picks how you correct its progress by 
 
 Adjustments only change the goal display. They never affect XP, Momentum, currency, productivity or the session log. The ± amount resets each period, and **Reset** clears adjustments early.
 
+## Dev mode
+
+For testing, add `?dev` to the address (e.g. `http://localhost:8000/?dev` or
+`https://danmngo-oss.github.io/pomoidletimer/?dev`). A **🛠 Dev** button
+appears in the dock; its window adds ◆ Momentum, INT, STR and DEX freely
+(type an amount, or use the +100 / +1k / +10k buttons; a negative amount
+removes some). Dev mode stays on in that browser until you press **Turn off
+dev mode** or visit with `?dev=0`. In the console, `focusIdle.dev(true)` and
+`focusIdle.dev(false)` do the same.
+
 ## Project layout
 
 | File | Responsibility |
@@ -106,6 +116,7 @@ Adjustments only change the goal display. They never affect XP, Momentum, curren
 | `js/cityMap.js` | The isometric city: drawing, selecting, dragging units and buildings |
 | `js/unitArt.js` | How units look (stand-in shapes with eyes), on the map and as card icons |
 | `js/unitsWindow.js` | The Units window: searchable, tabbed grid of unit cards |
+| `js/devMode.js` | Dev mode (`?dev`): a window for adding currency freely |
 | `js/buildingWindow.js` | A building's interior window: worker slots, upgrade, demolish |
 | `js/unitDrag.js` | Dragging unit cards between windows and onto the map |
 | `js/buildings.js` | Buying, upgrading, moving and staffing buildings; the Keep; Build menu and Keep dialogs |

@@ -590,3 +590,16 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
   font-size: .85rem;
   font-weight: 600;
 }
+
+/* ---- Dev window (js/devMode.js) ---------------------------------------- */
+.dev-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dev-row .row { grid-column: 1 / -1; flex-wrap: wrap; }
+.dev-name { color: var(--stat-color, var(--accent)); font-weight: 600; }
+.dev-amount { text-align: right; font-variant-numeric: tabular-nums; }
+.dev-row input[type="number"] { width: 8em; }
