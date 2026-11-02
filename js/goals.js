@@ -2,10 +2,13 @@
 // goals.js — the Goals panel (top right), the goal editor, and the pace card
 // in the timer panel.
 //
-// A goal is { id, name, period, start, end, units, measure, target,
+// A goal is { id, name, period, start, end, breaks, units, measure, target,
 // adjustMode, adjust }:
 //   period   'hourly' (each clock hour), 'daily' (a time window like
 //            6:00–14:05) or 'weekly' (Monday to Sunday)
+//   breaks   daily goals only: scheduled breaks inside the window, e.g.
+//            [{ start: '07:40', end: '07:50' }, …]. They don't count as
+//            working time, so the pace is spread over what's left.
 //   units    unit ids it counts, or null for every unit
 //   measure  'time' (focus time) or a metric unit such as 'chars': any
 //            included unit's metric with that unit counts
@@ -18,6 +21,11 @@
 //   expected    = 3h × (4h 21m ÷ 8h 5m)    ≈ 1h 37m by now at an even pace
 //   done        = 1h 23m                   → "▼ 13m behind" (rounded down)
 //   projection  = done ÷ elapsed × window  → where you'll end up at this pace
+//
+// With scheduled breaks, "window" and "elapsed" are WORKING time: break
+// time is left out of both. A 3h goal from 6:00 to 14:00 with breaks
+// 7:40–7:50, 9:00–9:30 and 11:40–11:50 paces over 7h 10m, not 8h, and the
+// expected amount holds still during a break.
 //
 // Each goal also lets the player correct progress by hand ("Adjust"),
 // either by adding/removing an amount (±) or with running totals (e.g. a
@@ -74,6 +82,40 @@ export function periodWindow(goal, now = Date.now()) {
     return { key: `wk:${dayKey(+d)}`, from: +d, start: +d, end: +end };
   }
   return { key: dayKey(now), from: atTime('00:00', now), start: atTime(goal.start, now), end: atTime(goal.end, now) };
+}
+
+// A daily goal's scheduled breaks for the day of `now`, as sorted
+// [start, end] epoch-ms pairs, clipped to the window [from, to], with
+// overlapping breaks merged so no minute is subtracted twice.
+function breakSpans(goal, from, to, now) {
+  if (goal.period !== 'daily' || !goal.breaks?.length) return [];
+  const spans = goal.breaks
+    .map((b) => [Math.max(from, atTime(b.start, now)), Math.min(to, atTime(b.end, now))])
+    .filter(([a, b]) => b > a)
+    .sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const [a, b] of spans) {
+    const last = merged.at(-1);
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else merged.push([a, b]);
+  }
+  return merged;
+}
+
+// Working time between `from` and `to`: the gap minus any break minutes
+// inside it.
+function workingMs(spans, from, to) {
+  if (to <= from) return 0;
+  let ms = to - from;
+  for (const [a, b] of spans) ms -= Math.max(0, Math.min(b, to) - Math.max(a, from));
+  return ms;
+}
+
+// The goal's working time per period ("7h 10m"), for the editor and the
+// summary line. Uses today's date; only the times matter.
+export function goalWorkingSpan(goal, now = Date.now()) {
+  const w = periodWindow(goal, now);
+  return workingMs(breakSpans(goal, w.start, w.end, now), w.start, w.end);
 }
 
 // How much of the goal's metric unit a logged session recorded (summing
@@ -181,10 +223,15 @@ export function goalProgress(goal, state, now = Date.now()) {
   const adjust = adjustAmount + rowsTotal;
   const done = Math.max(0, logged + adjust);
 
-  const span = w.end - w.start;
+  // Both measured in working time: scheduled breaks are left out. (At
+  // least 1ms, so a window that's all breaks can't divide by zero.)
+  const breaks = breakSpans(goal, w.start, w.end, now);
+  const span = Math.max(1, workingMs(breaks, w.start, w.end));
   // How far into the window we are, clamped to 0 before it and to the full
-  // span after it.
-  const elapsed = Math.min(span, Math.max(0, now - w.start));
+  // span after it. It doesn't grow during a break.
+  const elapsed = Math.min(span, workingMs(breaks, w.start, Math.min(now, w.end)));
+  // The end of the break we're in right now, if any.
+  const onBreakUntil = breaks.find(([a, b]) => now >= a && now < b)?.[1] ?? null;
   const target = isTime ? goal.target * 3_600_000 : goal.target;
   return {
     isTime,
@@ -200,8 +247,11 @@ export function goalProgress(goal, state, now = Date.now()) {
     expected: (target * elapsed) / span,   // where an even pace would be by now
     start: w.start,
     end: w.end,
-    span,
-    elapsed,
+    span,                                  // working time in the window
+    elapsed,                               // working time so far
+    remaining: span - elapsed,             // working time left
+    breakMs: (w.end - w.start) - span,     // scheduled break time in the window
+    onBreakUntil,
     phase: now < w.start ? 'before' : now >= w.end ? 'after' : 'during',
   };
 }
@@ -233,7 +283,10 @@ function goalSummary(goal) {
   const units = goal.units
     ? goal.units.map((id) => getSkill(id)?.name).filter(Boolean).join(', ') || 'no units'
     : 'all units';
-  const when = goal.period === 'daily' ? ` ${clockFmt.format(atTime(goal.start, Date.now()))}–${clockFmt.format(atTime(goal.end, Date.now()))}` : '';
+  const now = Date.now();
+  const breaks = goal.period === 'daily' && goal.breaks?.length
+    ? ` (${fmtDuration(goalWorkingSpan(goal, now))} working, ${goal.breaks.length} break${goal.breaks.length > 1 ? 's' : ''})` : '';
+  const when = goal.period === 'daily' ? ` ${clockFmt.format(atTime(goal.start, now))}–${clockFmt.format(atTime(goal.end, now))}${breaks}` : '';
   return `${PERIODS[goal.period]}${when} · ${goal.measure === 'time' ? 'focus time' : goal.measure} · ${units}`;
 }
 
@@ -459,6 +512,8 @@ function createGoalCard(goalId) {
       detail.textContent = (p.elapsed < 60_000 ? `Need ${rateText(p, p.target, p.span)}`
         : `Pace ${rateText(p, p.done, p.elapsed)} · need ${rateText(p, p.target, p.span)} · on track for ${amt((p.done / p.elapsed) * p.span)}`)
         + (p.live ? ' (incl. current session)' : '');
+      // During a scheduled break the expected amount stands still.
+      if (p.onBreakUntil) detail.textContent = `☕ Scheduled break until ${clockFmt.format(p.onBreakUntil)} · ${detail.textContent}`;
     } else {
       main.textContent = `${amt(p.done)} of ${amt(p.target)}`;
       detail.textContent = p.phase === 'before' ? `Even pace: ${rateText(p, p.target, p.span)}` : '';
@@ -499,7 +554,7 @@ export function initGoals() {
   // refreshes every card's numbers.
   function sync() {
     const goals = store.state.goals;
-    const key = goals.map((g) => `${g.id}:${JSON.stringify([g.name, g.period, g.start, g.end, g.units, g.measure, g.target])}`).join('|');
+    const key = goals.map((g) => `${g.id}:${JSON.stringify([g.name, g.period, g.start, g.end, g.breaks, g.units, g.measure, g.target])}`).join('|');
     if (key !== structureKey) {
       structureKey = key;
       cards = new Map(goals.map((g) => [g.id, createGoalCard(g.id)]));
@@ -524,7 +579,7 @@ export function openGoalEditor(goalId = null, preset = {}) {
   const existing = goalId ? store.state.goals.find((g) => g.id === goalId) : null;
   const draft = existing
     ? structuredClone(existing)
-    : { name: `Goal ${store.state.goals.length + 1}`, period: 'daily', start: '09:00', end: '17:00', units: null, measure: 'time', target: 3, adjustMode: 'amount', adjust: null, ...preset };
+    : { name: `Goal ${store.state.goals.length + 1}`, period: 'daily', start: '09:00', end: '17:00', breaks: [], units: null, measure: 'time', target: 3, adjustMode: 'amount', adjust: null, ...preset };
 
   // Every metric unit used by any unit ("chars", "min"…), once each.
   const metricUnits = [];
@@ -545,9 +600,48 @@ export function openGoalEditor(goalId = null, preset = {}) {
     el('label', { class: 'field grow' }, 'From', el('input', { type: 'time', value: draft.start, oninput: (e) => { draft.start = e.target.value; } })),
     el('label', { class: 'field grow' }, 'Until', el('input', { type: 'time', value: draft.end, oninput: (e) => { draft.end = e.target.value; } })));
 
+  // Scheduled breaks (daily goals): one From/Until row each. They're left
+  // out of the goal's working time, so the required pace accounts for them.
+  draft.breaks = (draft.breaks ?? []).map((b) => ({ ...b }));
+  const breakRows = el('div', { class: 'break-rows' });
+  const workingNote = el('p', { class: 'muted small' });
+  const breakFields = el('div', { class: 'field' },
+    el('div', { class: 'row' },
+      el('span', { class: 'grow' }, 'Scheduled breaks'),
+      el('button', {
+        type: 'button', class: 'chip',
+        onclick: () => { draft.breaks.push({ start: '12:00', end: '12:30' }); renderBreaks(); },
+      }, '+ Add break')),
+    breakRows,
+    workingNote);
+  function renderWorking() {
+    const total = atTime(draft.end, Date.now()) - atTime(draft.start, Date.now());
+    const working = goalWorkingSpan(draft);
+    workingNote.textContent = total > 0
+      ? `Working time: ${fmtDuration(working)}${working < total ? ` (${fmtDuration(total)} window − ${fmtDuration(total - working)} of breaks)` : ''}. The pace is spread over this.`
+      : '';
+  }
+  function renderBreaks() {
+    const timeInput = (b, key) => el('input', {
+      type: 'time', value: b[key], 'aria-label': key === 'start' ? 'Break starts' : 'Break ends',
+      oninput: (e) => { b[key] = e.target.value; renderWorking(); },
+    });
+    breakRows.replaceChildren(...draft.breaks.map((b, i) => el('div', { class: 'row break-row' },
+      timeInput(b, 'start'),
+      el('span', { class: 'muted' }, 'to'),
+      timeInput(b, 'end'),
+      el('button', {
+        type: 'button', class: 'ghost icon', title: 'Remove break', 'aria-label': 'Remove break',
+        onclick: () => { draft.breaks.splice(i, 1); renderBreaks(); },
+      }, '✕'))));
+    renderWorking();
+  }
+  for (const input of windowFields.querySelectorAll('input')) input.addEventListener('input', renderWorking);
+
   // Shows the fields that depend on the period and measure.
   function renderDynamic() {
     windowFields.hidden = draft.period !== 'daily';
+    breakFields.hidden = draft.period !== 'daily';
     targetUnit.textContent = isTime() ? (draft.period === 'hourly' ? 'min' : 'hours') : draft.measure;
     targetInput.value = +(draft.target * targetFactor()).toFixed(2);
   }
@@ -596,10 +690,16 @@ export function openGoalEditor(goalId = null, preset = {}) {
       const name = draft.name.trim();
       if (!name || !(draft.target > 0)) return toast('Give the goal a name and a target above 0.', { kind: 'error' });
       if (draft.period === 'daily' && !(draft.end > draft.start)) return toast('"Until" must be after "From".', { kind: 'error' });
+      if (draft.period === 'daily') {
+        if (draft.breaks.some((b) => !b.start || !b.end || !(b.end > b.start))) return toast('Each break needs an end time after its start.', { kind: 'error' });
+        if (goalWorkingSpan(draft) < 60_000) return toast('The breaks cover the whole window; leave some working time.', { kind: 'error' });
+      }
       if (draft.units && !draft.units.length) return toast('Pick at least one unit, or All units.', { kind: 'error' });
       // Running-total rows belong to one measure; a new measure starts fresh.
       const reset = existing && !sameUnit(existing.measure, draft.measure);
-      const saved = { ...draft, name, adjust: reset ? null : draft.adjust };
+      // Breaks are kept in time order; they only apply to daily goals.
+      const breaks = draft.period === 'daily' ? [...draft.breaks].sort((a, b) => a.start.localeCompare(b.start)) : [];
+      const saved = { ...draft, name, breaks, adjust: reset ? null : draft.adjust };
       store.update('goals', (s) => {
         if (existing) s.goals[s.goals.findIndex((g) => g.id === goalId)] = saved;
         else s.goals.push({ ...saved, id: uid() });
@@ -612,6 +712,7 @@ export function openGoalEditor(goalId = null, preset = {}) {
     el('label', { class: 'field' }, 'Name', el('input', { value: draft.name, required: true, maxLength: 40, oninput: (e) => { draft.name = e.target.value; } })),
     el('div', { class: 'field' }, 'Period', periodPicker),
     windowFields,
+    breakFields,
     el('div', { class: 'row' },
       el('label', { class: 'field grow' }, 'Measure', measureSelect),
       el('label', { class: 'field' }, 'Target', el('div', { class: 'input-unit' }, targetInput, targetUnit))),
@@ -632,6 +733,7 @@ export function openGoalEditor(goalId = null, preset = {}) {
   );
 
   renderDynamic();
+  renderBreaks();
   renderUnits();
   dlg.replaceChildren(form);
   dlg.showModal();
@@ -685,7 +787,8 @@ export function initPaceCard() {
     status.textContent = v.text;
     status.className = `pace-status ${v.cls}`;
     // Overall pace so far vs. the pace still needed in the time remaining.
-    const remainingMs = p.end - Math.max(Date.now(), p.start);
+    // Working time left (scheduled breaks don't count).
+    const remainingMs = p.remaining;
     const stillNeeded = Math.max(0, p.target - p.done);
     paceLine.textContent = p.phase === 'after' || remainingMs <= 0
       ? `Finished at ${fmtAmount(p, p.done)} of ${fmtAmount(p, p.target)}`

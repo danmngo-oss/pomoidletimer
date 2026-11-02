@@ -603,3 +603,8 @@ input[type="color"] { padding: 2px; height: 38px; width: 52px; }
 .dev-name { color: var(--stat-color, var(--accent)); font-weight: 600; }
 .dev-amount { text-align: right; font-variant-numeric: tabular-nums; }
 .dev-row input[type="number"] { width: 8em; }
+
+/* Scheduled breaks in the goal editor */
+.break-rows { display: grid; gap: 6px; margin-top: 6px; }
+.break-row { flex-wrap: nowrap; }
+.break-row input[type="time"] { flex: 1; min-width: 0; }

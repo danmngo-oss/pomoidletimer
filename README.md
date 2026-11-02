@@ -78,6 +78,7 @@ The **Goals** panel holds as many goals as you like. Add one with **+ Add goal**
 - **Period:** **hourly** (each clock hour), **daily** (a time window, e.g. 6:00–14:05) or **weekly** (Monday–Sunday).
 - **Measure:** focus time, or a metric unit such as `chars`. A metric goal adds up every counted unit's metrics with that unit.
 - **Units:** all of them, or a chosen few.
+- **Scheduled breaks** (daily goals): add break times inside the window, e.g. 7:40–7:50, 9:00–9:30 and 11:40–11:50. They're left out of the goal's working time, so a 3h goal from 6:00 to 14:00 paces over **7h 10m** instead of 8h. During a break the expected progress holds still and the card says when the break ends. Overlapping breaks are only counted once.
 
 Each goal shows progress against an even pace through its window. For example, at 10:21 with 1h 23m done on a 3h daily goal it shows `1h 23m / 4h 21m ▼ 13m behind`, plus your pace, the pace you need, and where you're on track to finish. Time goals include the session currently on the timer.
 
